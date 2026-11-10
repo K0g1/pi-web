@@ -1,12 +1,14 @@
 import type { Metadata, Viewport } from "next";
 import { Noto_Sans_Mono } from "next/font/google";
 import { PwaRegistration } from "@/components/PwaRegistration";
+import { APPEARANCE_INIT_SCRIPT } from "@/lib/appearance-preferences";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import "katex/dist/katex.min.css";
 import "./globals.css";
 import "./settings.css";
 import "./sidebar.css";
 import "./sidebar-menu.css";
+import "./appearance.css";
 
 const notoSansMono = Noto_Sans_Mono({
   subsets: ["latin", "cyrillic"],
@@ -68,6 +70,11 @@ export default function RootLayout({
         <script
           dangerouslySetInnerHTML={{
             __html: THEME_INIT_SCRIPT,
+          }}
+        />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: APPEARANCE_INIT_SCRIPT,
           }}
         />
       </head>

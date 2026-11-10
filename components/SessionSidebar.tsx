@@ -79,6 +79,7 @@ import {
 import { countFaviconUnread, syncFaviconBadge } from "@/lib/favicon-badge";
 import { focusIfLost, type FocusDocument } from "@/lib/stacked-dialog";
 import { noteRunningPoll } from "@/lib/page-debug";
+import { pickNativeFolder } from "@/lib/native-folder-picker-client";
 import { useFilesPlacement } from "@/hooks/useFilesPlacement";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -530,6 +531,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [customPathValue, setCustomPathValue] = useState(loadLastCustomCwd);
   const [customPathError, setCustomPathError] = useState<string | null>(null);
   const [customPathValidating, setCustomPathValidating] = useState(false);
+  const customPathValidatingRef = useRef(false);
   const [validatedProject, setValidatedProject] = useState<ValidatedProject | null>(null);
   // The files tab's project and worktree picker.
   const filesPickerRef = useRef<ProjectWorktreePickerHandle>(null);
@@ -653,6 +655,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // and the control focus returns to when the composer does not move.
   const folderPickRef = useRef<((target: NewSessionTarget) => void) | null>(null);
   const folderReturnFocusRef = useRef<HTMLElement | null>(null);
+  const folderPickerRequestRef = useRef<{ controller: AbortController } | null>(null);
 
   // Focus to settle once a change is on the page, after the control that had
   // it went away with that change (a toast's button, a delete confirmation's
@@ -669,6 +672,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     focusAfterCommitRef.current = null;
     if (target) focusIfLost(document, target());
   }, [focusRequest]);
+
+  useEffect(() => () => {
+    folderPickerRequestRef.current?.controller.abort();
+    folderPickerRequestRef.current = null;
+    folderPickRef.current = null;
+    folderReturnFocusRef.current = null;
+  }, []);
 
   // Pins, archive and project order: pi-web's own state, kept on the server for every window.
   const {
@@ -1216,17 +1226,35 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const currentWorktreePath = currentWorktree?.path ?? null;
 
   // `purpose`: who asked, the folder picker's opener by default ("Use default directory" names its own).
-  const commitCustomPath = useCallback(async (candidate?: string, { remember = true, purpose = customPathOpen } = {}) => {
-    const path = (candidate ?? customPathValue).trim();
-    if (!path || customPathValidating) return;
+  const commitCustomPath = useCallback(async (
+    candidate?: string,
+    {
+      remember = true,
+      purpose = customPathOpen || "files",
+      native = false,
+      signal,
+    }: {
+      remember?: boolean;
+      purpose?: "files" | "new-session";
+      /** Native validation failures have no open in-app picker to show them in. */
+      native?: boolean;
+      signal?: AbortSignal;
+    } = {},
+  ): Promise<boolean> => {
+    const rawPath = candidate ?? customPathValue;
+    // A native selection is a real folder name; whitespace can be part of it.
+    const path = native ? rawPath : rawPath.trim();
+    if (!path || customPathValidatingRef.current) return false;
 
+    customPathValidatingRef.current = true;
     setCustomPathValidating(true);
     setCustomPathError(null);
     try {
       const res = await fetch("/api/cwd/validate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd: path }),
+        body: JSON.stringify(native ? { cwd: path, literal: true } : { cwd: path }),
+        signal,
       });
       const data = await res.json().catch(() => ({})) as {
         cwd?: string;
@@ -1234,9 +1262,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         projectKey?: string;
         error?: string;
       };
+      if (signal?.aborted) return false;
       if (!res.ok || data.error || !data.cwd || !data.projectRoot || !data.projectKey) {
-        setCustomPathError(data.error ?? `HTTP ${res.status}`);
-        return;
+        const message = data.error ?? `HTTP ${res.status}`;
+        if (native) showToast(t("sidebar.nativeFolderPickerValidationFailed", { error: message }));
+        else setCustomPathError(message);
+        return false;
       }
       if (remember) {
         saveLastCustomCwd(data.cwd);
@@ -1253,7 +1284,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         pick?.({ cwd: data.cwd, projectKey: data.projectKey, projectRoot: data.projectRoot });
         // Not moved (the folder in use): the bar's control takes focus back.
         focusAfterCommit(() => (opener?.isConnected ? opener : null));
-        return;
+        return true;
       }
       setValidatedProject({
         cwd: data.cwd,
@@ -1261,18 +1292,114 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         key: data.projectKey,
       });
       setSelectedCwd(data.cwd);
+      const opener = folderReturnFocusRef.current;
+      folderReturnFocusRef.current = null;
+      focusAfterCommit(() => (opener?.isConnected ? opener : null));
+      return true;
     } catch (e) {
-      setCustomPathError(e instanceof Error ? e.message : String(e));
+      if (signal?.aborted) return false;
+      const message = e instanceof Error ? e.message : String(e);
+      if (native) showToast(t("sidebar.nativeFolderPickerValidationFailed", { error: message }));
+      else setCustomPathError(message);
+      return false;
     } finally {
+      customPathValidatingRef.current = false;
       setCustomPathValidating(false);
     }
-  }, [customPathOpen, customPathValue, customPathValidating, focusAfterCommit]);
+  }, [customPathOpen, customPathValue, focusAfterCommit, showToast, t]);
 
-  const handleCustomPathClick = useCallback(() => {
-    setCustomPathOpen("files");
+  const showFolderPickerBusy = useCallback((opener: HTMLElement | null) => {
+    showToast(t("sidebar.nativeFolderPickerBusy"));
+    focusAfterCommit(() => (opener?.isConnected ? opener : null));
+  }, [focusAfterCommit, showToast, t]);
+
+  // Both "Open another project…" entry points ask the native picker first.
+  // The request ref spans the follow-up validation too, so a second opener
+  // cannot replace the fresh composer's callback while the first is pending.
+  const openFolderPicker = useCallback(async ({
+    purpose,
+    opener,
+    onPicked,
+    onOpened,
+    onUnavailable,
+  }: {
+    purpose: "files" | "new-session";
+    opener: HTMLElement | null;
+    onPicked?: (target: NewSessionTarget) => void;
+    onOpened?: () => void;
+    onUnavailable?: () => void;
+  }) => {
+    if (folderPickerRequestRef.current || customPathOpen || customPathValidatingRef.current) {
+      showFolderPickerBusy(opener);
+      return;
+    }
+    const request = { controller: new AbortController() };
+    folderPickerRequestRef.current = request;
+    folderPickRef.current = purpose === "new-session" ? onPicked ?? null : null;
+    folderReturnFocusRef.current = opener;
     setCustomPathError(null);
-  }, []);
+    const release = () => {
+      if (folderPickerRequestRef.current === request) folderPickerRequestRef.current = null;
+    };
+    const fallback = () => {
+      if (!onUnavailable) {
+        setCustomPathOpen(purpose);
+        return;
+      }
+      folderPickRef.current = null;
+      folderReturnFocusRef.current = null;
+      onUnavailable();
+    };
+    try {
+      const result = await pickNativeFolder({
+        ...(customPathValue ? { initialPath: customPathValue } : {}),
+        prompt: t("sidebar.nativeFolderPickerPrompt"),
+        signal: request.controller.signal,
+      });
+      if (request.controller.signal.aborted) return;
+      if (result.kind === "selected") {
+        const committed = await commitCustomPath(result.cwd, {
+          purpose,
+          native: true,
+          signal: request.controller.signal,
+        });
+        if (request.controller.signal.aborted) return;
+        if (committed) {
+          onOpened?.();
+        } else {
+          folderPickRef.current = null;
+          folderReturnFocusRef.current = null;
+          focusAfterCommit(() => (opener?.isConnected ? opener : null));
+        }
+        return;
+      }
+      release();
+      if (result.kind === "unavailable") {
+        fallback();
+        return;
+      }
+      folderPickRef.current = null;
+      folderReturnFocusRef.current = null;
+      if (result.kind === "busy") showFolderPickerBusy(opener);
+      else focusAfterCommit(() => (opener?.isConnected ? opener : null));
+    } catch {
+      release();
+      if (request.controller.signal.aborted) return;
+      // A native picker that cannot be reached behaves as unavailable.
+      fallback();
+    } finally {
+      release();
+    }
+  }, [commitCustomPath, customPathOpen, customPathValue, focusAfterCommit, showFolderPickerBusy, t]);
+
+  const handleCustomPathClick = useCallback((opener: HTMLElement | null) => {
+    void openFolderPicker({ purpose: "files", opener });
+  }, [openFolderPicker]);
   const handleDefaultCwd = useCallback(async (purpose: "files" | "new-session" = "files") => {
+    if (folderPickerRequestRef.current) {
+      showFolderPickerBusy(null);
+      return;
+    }
     try {
       const res = await fetch("/api/default-cwd", { method: "POST" });
       const data = await res.json() as { cwd?: string; error?: string };
@@ -1283,7 +1410,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     } catch {
       // ignore
     }
-  }, [commitCustomPath]);
+  }, [commitCustomPath, showFolderPickerBusy]);
   // The composer's bar asks through the handle, which is made once.
   const handleDefaultCwdRef = useRef(handleDefaultCwd);
   handleDefaultCwdRef.current = handleDefaultCwd;
@@ -1375,19 +1502,20 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   useImperativeHandle(controlRef, () => ({
     startNewSessionIn: (target) => startNewSessionInRef.current(target),
     openFolderForNewSession: (onPicked, returnFocusTo) => {
-      folderPickRef.current = onPicked;
-      folderReturnFocusRef.current = returnFocusTo;
-      setCustomPathError(null);
-      setCustomPathOpen("new-session");
+      void openFolderPicker({ purpose: "new-session", opener: returnFocusTo, onPicked });
     },
     openDefaultDirectoryForNewSession: (onPicked) => {
+      if (folderPickerRequestRef.current) {
+        showFolderPickerBusy(null);
+        return;
+      }
       folderPickRef.current = onPicked;
       folderReturnFocusRef.current = null;
       void handleDefaultCwdRef.current("new-session");
     },
     refreshWorktrees,
     createWorktree,
-  }), [createWorktree, refreshWorktrees]);
+  }), [createWorktree, openFolderPicker, refreshWorktrees, showFolderPickerBusy]);
 
   // Header "+": a new session in the sidebar's current cwd (worktree).
   const handleNewSession = useCallback(() => {
@@ -2338,8 +2466,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     window.open(newSessionDeepLink(cwd), "_blank", "noopener,noreferrer");
   };
 
-  const handleOpenOtherProject = () => {
-    revealFiles("project-list");
+  const handleOpenOtherProject = (opener: HTMLElement) => {
+    void openFolderPicker({
+      purpose: "files",
+      opener,
+      onOpened: () => revealFiles("project-button"),
+      onUnavailable: () => revealFiles("project-list"),
+    });
   };
   // Once the files show, the project button takes the focus, or its menu
   // opens below it (the menu takes the focus: its filter or first project),
@@ -2849,16 +2982,18 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           busy={customPathValidating}
           error={customPathError}
           onCancel={() => {
-            // The composer's "Open another project…" puts focus back on its
-            // control: the picker took it and leaves nothing behind.
-            const opener = customPathOpen === "new-session" ? folderReturnFocusRef.current : null;
+            // The picker took focus from the control that opened it and leaves
+            // nothing behind, so hand it back if the browser dropped it.
+            const opener = folderReturnFocusRef.current;
             folderPickRef.current = null;
             folderReturnFocusRef.current = null;
             setCustomPathOpen(false);
             setCustomPathError(null);
             if (opener) focusAfterCommit(() => (opener.isConnected ? opener : null));
           }}
-          onSelect={(path) => void commitCustomPath(path)}
+          onSelect={(path) => void commitCustomPath(path, {
+            purpose: customPathOpen === "new-session" ? "new-session" : "files",
+          })}
         />
       )}
       {/* One toolbar row, in the cells of the chat's top bar beside it (its

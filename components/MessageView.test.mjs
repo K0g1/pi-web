@@ -41,6 +41,7 @@ test("updates a reused message when its written files change", () => {
   const props = { message: { role: "assistant", content: [] } };
   assert.equal(MessageView.compare(props, props), true);
   assert.equal(MessageView.compare(props, { ...props, writtenFiles: [{ path: "/tmp/result.txt" }] }), false);
+  assert.equal(MessageView.compare({ ...props, sessionId: "one" }, { ...props, sessionId: "two" }), false);
 });
 
 test("on a narrow phone a message's actions drop their labels and keep their titles", () => {
@@ -168,6 +169,11 @@ test("keys an assistant message's blocks by their place, not the entry id (#1184
     ts.forEachChild(node, visit);
   })(source);
   assert.deepEqual(keys, ["originalIndex"]);
+});
+
+test("remounts assistant text once when streaming settles", () => {
+  const source = readFileSync(new URL("./MessageView.tsx", import.meta.url), "utf8");
+  assert.match(source, /key=\{isStreaming \? "streaming" : "settled"\}/);
 });
 
 test("marks only the matched text block after splitting thinking and the final answer", () => {
@@ -682,6 +688,54 @@ test("renders user-message images as buttons that open a larger preview", () => 
 
   assert.match(html, /<button[^>]+aria-label="Preview image"[^>]*>/);
   assert.match(html, /<img[^>]+src="data:image\/png;base64,YWJj"/);
+});
+
+test("passes the chat session through saved and streaming Markdown media", () => {
+  const props = { cwd: "/private/tmp", sessionId: "session/with space", onOpenFile() {} };
+  const saved = renderMessage({
+    role: "assistant",
+    content: [{ type: "text", text: "![inline](/tmp/pi_inline_test.png)" }],
+  }, props);
+  const streamed = renderMessage({
+    role: "assistant",
+    content: [{ type: "text", text: "![inline](file:///tmp/pi_inline_test.png)" }],
+  }, { ...props, isStreaming: true });
+  const user = renderMessage({
+    role: "user",
+    content: "![inline](file:///tmp/pi_inline_test.png)",
+  }, props);
+
+  for (const html of [saved, streamed, user]) {
+    assert.match(html, /<img[^>]+src="\/api\/files\/tmp\/pi_inline_test\.png\?type=read&amp;sessionId=session%2Fwith%20space"/);
+    assert.doesNotMatch(html, /src="file:/);
+  }
+});
+
+test("keeps session auth off attachments, remote images and tool-result images", () => {
+  const props = { sessionId: "session-1", onOpenFile() {} };
+  const attachment = renderMessage({
+    role: "user",
+    content: [{ type: "image", data: "YWJj", mimeType: "image/png" }],
+  }, props);
+  const remote = renderMessage({
+    role: "assistant",
+    content: [{ type: "text", text: "![logo](https://example.com/logo.png)" }],
+  }, props);
+  const toolCall = { type: "toolCall", toolCallId: "call-shot", toolName: "page_screenshot", input: {} };
+  const toolResult = {
+    role: "toolResult",
+    toolCallId: "call-shot",
+    content: [{ type: "image", data: "YWJj", mimeType: "image/png" }],
+  };
+  const toolImage = renderMessage({
+    role: "assistant",
+    content: [toolCall],
+  }, { ...props, toolResults: new Map([[toolCall.toolCallId, toolResult]]) });
+
+  assert.match(attachment, /<img[^>]+src="data:image\/png;base64,YWJj"/);
+  assert.match(remote, /<img[^>]+src="https:\/\/example\.com\/logo\.png"/);
+  assert.match(toolImage, /<img[^>]+src="data:image\/png;base64,YWJj"/);
+  for (const html of [attachment, remote, toolImage]) assert.doesNotMatch(html, /sessionId/);
 });
 
 test("marks apply_patch returned failures as errors even when isError is unset", () => {

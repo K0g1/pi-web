@@ -106,6 +106,10 @@ async function runUpdate({
   log = console.log,
   error = console.error,
 }) {
+  if (currentVersion.includes("-minimal.")) {
+    log("Install Minimal updates from https://github.com/K0g1/pi-web/releases.");
+    return 0;
+  }
   let latest;
   try {
     latest = await fetchLatest();

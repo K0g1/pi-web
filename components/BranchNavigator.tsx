@@ -12,6 +12,8 @@ interface Props {
   inline?: boolean;
   /** When inline, use this ref's bounding rect to size/position the dropdown */
   containerRef?: React.RefObject<HTMLElement | null>;
+  /** Optional toolbar dock occupying the next row below the anchor. */
+  belowRef?: React.RefObject<HTMLElement | null>;
   /** Controlled open state for inline mode */
   open?: boolean;
   /** Called when the button is clicked in inline mode */
@@ -257,7 +259,7 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
   );
 }
 
-export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, containerRef, open: openProp, onToggle, hasSession, compact, hideInlineButton, locked = false }: Props) {
+export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, containerRef, belowRef, open: openProp, onToggle, hasSession, compact, hideInlineButton, locked = false }: Props) {
   const { t } = useI18n();
   const [openInternal, setOpenInternal] = useState(false);
   const open = openProp !== undefined ? openProp : openInternal;
@@ -270,13 +272,14 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
     if (!anchor) return;
     const update = () => {
       const rect = anchor.getBoundingClientRect();
-      setDropdownPos({ top: rect.bottom, left: rect.left, width: rect.width });
+      setDropdownPos({ top: rect.bottom + (belowRef?.current?.offsetHeight ?? 0), left: rect.left, width: rect.width });
     };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(anchor);
+    if (belowRef?.current) ro.observe(belowRef.current);
     return () => ro.disconnect();
-  }, [open, inline, containerRef]);
+  }, [open, inline, containerRef, belowRef]);
 
   const activePathIds = useMemo(
     () => buildActivePath(tree, activeLeafId),

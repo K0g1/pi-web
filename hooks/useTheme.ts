@@ -123,7 +123,8 @@ export function useTheme() {
       setThemeState(nextPreference, nextTheme, true);
     };
 
-    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const reduceMotion = document.documentElement.dataset.piMotion === "reduced"
+      || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     const supportsVT = typeof document.startViewTransition === "function";
 
     if (!supportsVT || reduceMotion) {

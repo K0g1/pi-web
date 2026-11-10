@@ -18,7 +18,7 @@ function setup(collapsed = false) {
   const toggle = nodes.find((node) => ts.isVariableDeclaration(node) && node.name.getText(source) === "handleSidebarToggle");
   const context = createContext({
     initialNavigation: { sidebarCollapsed: collapsed }, isMobile: false, sidebarOpen: !collapsed,
-    useRef: (current) => ({ current }), setActiveTopPanel() {}, setMobileToolbarMoreOpen() {},
+    useRef: (current) => ({ current }), setActiveTopPanel() {}, setMobileToolbarMoreOpen() {}, setMinimalControlsOpen() {},
   });
   context.desktopSidebarOpenRef = script(preference.initializer.getText(source)).runInContext(context);
   context.setSidebarOpen = (value) => { context.sidebarOpen = typeof value === "function" ? value(context.sidebarOpen) : value; };

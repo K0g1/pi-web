@@ -1,7 +1,8 @@
 "use client";
 
 import { createContext, memo, useContext, useMemo, useState, type ComponentProps, type MouseEvent, type ReactNode } from "react";
-import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
+import ReactMarkdown, { type Components, type ExtraProps, type Options as ReactMarkdownOptions } from "react-markdown";
+import type { Content, Root } from "mdast";
 import { useI18n } from "@/hooks/useI18n";
 import { copyText } from "@/lib/clipboard";
 import { parsePdfPageFragment, resolveLocalFileHref, shouldOpenLocalFileInApp } from "@/lib/file-links";
@@ -20,6 +21,8 @@ interface MarkdownBodyProps {
   className?: string;
   isStreaming?: boolean;
   cwd?: string;
+  /** The session a chat's local file reads may be authorized against. */
+  sessionId?: string;
   onOpenFile?: (filePath: string, page?: number) => void;
   /** A document reader's own links: relative paths and `#headings` stay in the reader. */
   onNavigateLink?: (href: string) => void;
@@ -29,18 +32,42 @@ interface MarkdownBodyProps {
   keepTextLayout?: boolean;
 }
 
+function localFileMediaSrc(filePath: string, sessionId?: string): string {
+  const sessionQuery = sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : "";
+  return `/api/files/${encodeFilePathForApi(filePath)}?type=read${sessionQuery}`;
+}
+
+/**
+ * `file:` is kept for links, but the sanitizer does not allow it in an image
+ * src. Rewrite Markdown image destinations before sanitizing, through the same
+ * file API the other local media uses. Raw HTML images stay sanitized.
+ */
+function remarkLocalFileImages(options: { cwd?: string; sessionId?: string }) {
+  return (tree: Root): void => {
+    const walk = (node: Root | Content): void => {
+      if (node.type === "image" && /^file:/i.test(node.url)) {
+        const filePath = resolveLocalFileHref(node.url, options.cwd);
+        if (filePath) node.url = localFileMediaSrc(filePath, options.sessionId);
+      }
+      if ("children" in node) node.children.forEach(walk);
+    };
+    walk(tree);
+  };
+}
+
 function MarkdownImage({
   src,
   alt,
   cwd,
+  sessionId,
   ...props
-}: ComponentProps<"img"> & ExtraProps & { cwd?: string }) {
+}: ComponentProps<"img"> & ExtraProps & { cwd?: string; sessionId?: string }) {
   const insideLink = useContext(MarkdownLinkContext);
   delete props.node;
   const href = typeof src === "string" ? src : undefined;
   const filePath = href ? resolveLocalFileHref(href, cwd) : null;
   const mediaSrc = filePath
-    ? `/api/files/${encodeFilePathForApi(filePath)}?type=read`
+    ? localFileMediaSrc(filePath, sessionId)
     : href;
   // `![](take.wav)` is how a model shows a sound or clip it made, and an <img>
   // cannot play it. The file API already streams both with range requests.
@@ -89,7 +116,7 @@ function MathDisplay({ source, children }: { source: string; children: ReactNode
 
 interface MarkdownBlockProps {
   markdown: string;
-  remarkPlugins: typeof markdownRemarkPlugins;
+  remarkPlugins: ReactMarkdownOptions["remarkPlugins"];
   urlTransform: typeof markdownUrlTransform;
   rehypePlugins: typeof markdownRehypePlugins;
   components: Components;
@@ -109,7 +136,7 @@ const MarkdownBlock = memo(function MarkdownBlock({ markdown, remarkPlugins, url
   );
 });
 
-export const MarkdownBody = memo(function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile, onNavigateLink, keepLineBreaks, keepTextLayout }: MarkdownBodyProps) {
+export const MarkdownBody = memo(function MarkdownBody({ children, className, isStreaming, cwd, sessionId, onOpenFile, onNavigateLink, keepLineBreaks, keepTextLayout }: MarkdownBodyProps) {
   const normalizedMarkdown = useMemo(() => normalizeDisplayMath(children), [children]);
   // A streaming reply grows by a few characters per chunk; parsing all of it
   // each time made a long reply quadratic. Its finished blocks keep their
@@ -118,6 +145,14 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
     () => (isStreaming ? splitMarkdownBlocks(normalizedMarkdown) : [normalizedMarkdown]),
     [isStreaming, normalizedMarkdown],
   );
+  const remarkPlugins = useMemo<NonNullable<ReactMarkdownOptions["remarkPlugins"]>>(() => {
+    const base = (keepTextLayout
+      ? markdownTextLayoutRemarkPlugins
+      : keepLineBreaks
+        ? markdownUserRemarkPlugins
+        : markdownRemarkPlugins) ?? [];
+    return onOpenFile ? [...base, [remarkLocalFileImages, { cwd, sessionId }]] : base;
+  }, [cwd, keepLineBreaks, keepTextLayout, onOpenFile, sessionId]);
   // Stable renderer identities keep stateful blocks mounted across message hover updates.
   const components = useMemo<Components>(() => ({
     code({ className, children, ...props }) {
@@ -204,7 +239,7 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
       );
     },
     img(props) {
-      return <MarkdownImage cwd={cwd} {...props} />;
+      return <MarkdownImage cwd={cwd} sessionId={sessionId} {...props} />;
     },
     ol({ node, start, style, ...props }) {
       // An outside marker wider than the list's left padding is clipped by
@@ -229,7 +264,7 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
         </div>
       );
     },
-  }), [cwd, isStreaming, onOpenFile, onNavigateLink]);
+  }), [cwd, isStreaming, onOpenFile, onNavigateLink, sessionId]);
 
   return (
     <div className={["markdown-body", className].filter(Boolean).join(" ")}>
@@ -237,7 +272,7 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
         <MarkdownBlock
           key={index}
           markdown={block}
-          remarkPlugins={keepTextLayout ? markdownTextLayoutRemarkPlugins : keepLineBreaks ? markdownUserRemarkPlugins : markdownRemarkPlugins}
+          remarkPlugins={remarkPlugins}
           urlTransform={onOpenFile ? markdownUrlTransform : markdownAppUrlTransform}
           rehypePlugins={onNavigateLink ? markdownDocumentRehypePlugins : markdownRehypePlugins}
           components={components}

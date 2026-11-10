@@ -56,6 +56,7 @@ interface Props {
   isStreaming: boolean;
   /** Text-only composer without the session controls or outer spacing. */
   compact?: boolean;
+  minimapGutter?: number;
   model?: { provider: string; modelId: string } | null;
   isAutoModelSelection?: boolean;
   modelNames?: Record<string, string>;
@@ -705,6 +706,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
   cwd,
   onAttachFiles,
   compact = false,
+  minimapGutter,
 }: Props, ref) {
   const { t } = useI18n();
   const { fontSize } = useChatAppearance();
@@ -1786,8 +1788,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         margin: 0,
         border: 0,
         background: "transparent",
-        padding: compact ? 0 : "0 16px 8px",
-        paddingRight: compact ? 0 : isMobile ? 16 : 52, // desktop: 16px base + 36px for ChatMinimap alignment
+        padding: compact ? 0 : "0 var(--pi-composer-inset, 16px) 8px",
+        paddingRight: compact ? 0 : `calc(var(--pi-composer-inset, 16px) + ${minimapGutter ?? (isMobile ? 0 : 36)}px)`,
         opacity: builtinCommandPending ? 0.5 : 1,
         transition: "opacity 0.15s",
       }}
@@ -1801,7 +1803,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
         style={{ display: "none" }}
         onChange={handleFilePick}
       />}
-      <div style={{ ...(compact ? undefined : { display: "flex", flexDirection: "column", minHeight: 0, width: "100%" }), maxWidth: "var(--chat-content-max-width, 820px)", margin: "0 auto" }}>
+      <div data-chat-column={compact ? undefined : ""} style={{ ...(compact ? undefined : { display: "flex", flexDirection: "column", minHeight: 0, width: "100%" }), maxWidth: "var(--chat-content-max-width, 820px)", margin: "0 auto" }}>
         <MissingCwdBanner cwd={missingCwd} />
         <ModelErrorBanner error={modelError} />
         <ModelScopeWarningBanner warnings={modelScopeWarnings} />
@@ -2332,8 +2334,8 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               background: "var(--bg)",
               border: compact ? "none" : `1px solid ${bashMode ? "var(--tool-bg)" : isStreaming && (onSteer || onFollowUp)
                 ? "rgba(234,179,8,0.4)"
-                : "color-mix(in srgb, var(--border) 70%, transparent)"}`,
-              borderRadius: compact ? 0 : 14,
+                : "color-mix(in srgb, var(--pi-soft-border, var(--border)) 70%, transparent)"}`,
+              borderRadius: compact ? 0 : "var(--pi-radius, 14px)",
               padding: compact ? 0 : isMobile ? "6px 6px 6px 12px" : "10px 10px 10px 14px",
               boxShadow: compact ? "none" : "0 1px 2px rgba(15,23,42,0.04), 0 8px 24px -12px rgba(15,23,42,0.10)",
               transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
@@ -2569,7 +2571,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
           {!isMobile && <div style={{ flex: 1 }} />}
 
           {/* RIGHT: thinking + tools preset + compact + sound (idle) | Stop + sound (streaming) */}
-          <div ref={controlsMenuRef} style={{
+          <div ref={controlsMenuRef} className="chat-composer-advanced" style={{
             flex: "0 0 auto",
             display: "flex",
             alignItems: "center",
@@ -2642,7 +2644,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               } : null),
             }}>
             {onThinkingLevelChange && (
-              <div ref={thinkingDropdownRef} style={{ position: "relative" }}>
+              <div ref={thinkingDropdownRef} className="chat-composer-quiet" data-open={thinkingDropdownOpen || undefined} style={{ position: "relative" }}>
                 <button
                   onClick={() => setThinkingDropdownOpen((v) => !v)}
                   title={isStreaming
@@ -2736,7 +2738,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
               </div>
             )}
             {!isStreaming && onToolPresetChange && (
-              <div ref={toolDropdownRef} style={{
+              <div ref={toolDropdownRef} className="chat-composer-quiet" data-open={toolDropdownOpen || undefined} style={{
                 // On a phone the menu opens from the strip's right edge, not
                 // the button's: its preset descriptions are wider than the room
                 // right of the button, so it ran off the screen.
@@ -2826,7 +2828,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
             )}
 
             {(!isStreaming || isCompacting) && onCompact && (
-              <div>
+              <div className={isCompacting ? undefined : "chat-composer-quiet"}>
                 <button
                   onClick={isCompacting ? onAbortCompaction : (e) => { if (!isStrayClick(e)) onCompact(); }}
                   style={{
@@ -2894,6 +2896,7 @@ export const ChatInput = memo(forwardRef<ChatInputHandle, Props>(function ChatIn
 
             {onSoundToggle !== undefined && (
               <button
+                className="chat-composer-quiet"
                 onClick={onSoundToggle}
                  title={soundEnabled ? t("chat.disableSound") : t("chat.enableSound")}
                  aria-label={soundEnabled ? t("chat.disableSound") : t("chat.enableSound")}

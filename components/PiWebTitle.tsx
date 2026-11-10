@@ -20,7 +20,9 @@ export const SCRAMBLE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvw
 
 /** The versions as the brand shows them: "0.11.0p1.1.0". */
 export function brandVersionText(appVersion: string | undefined, piVersion: string | undefined): string {
-  return `${appVersion ?? "0.0.0"}p${piVersion ?? "0.0.0"}`;
+  // Keep the compact brand readable at the sidebar minimum. Its accessible
+  // label and the CLI still report the complete package version.
+  return `${(appVersion ?? "0.0.0").split(/[-+]/, 1)[0]}p${piVersion ?? "0.0.0"}`;
 }
 
 /** How many frames `target` takes to settle. */

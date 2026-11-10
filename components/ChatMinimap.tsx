@@ -14,6 +14,7 @@ import { useI18n } from "@/hooks/useI18n";
 import styles from "./ChatMinimap.module.css";
 
 interface Props {
+  className?: string;
   messages: AgentMessage[];
   /** The reply being streamed, read when the turns are measured: it never re-renders the minimap. */
   getStreamingMessage: () => Partial<AgentMessage> | null;
@@ -247,6 +248,7 @@ function layoutNodes(allNodes: NodeInfo[], minimapHeight: number): NodeLayout {
 }
 
 export const ChatMinimap = memo(function ChatMinimap({
+  className,
   messages,
   getStreamingMessage,
   scrollContainer,
@@ -638,6 +640,7 @@ export const ChatMinimap = memo(function ChatMinimap({
 
   return (
     <div
+      className={className}
       ref={containerRef}
       onMouseDown={handleMouseDown}
       onMouseEnter={showPreview}

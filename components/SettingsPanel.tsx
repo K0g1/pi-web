@@ -1,10 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import dynamic from "next/dynamic";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { useTheme } from "@/hooks/useTheme";
-import { THEME_OPTIONS } from "@/lib/theme";
 import {
   CHAT_CONTENT_WIDTH_DEFAULT,
   CHAT_CONTENT_WIDTH_MAX,
@@ -16,6 +15,7 @@ import {
 } from "@/hooks/useChatAppearance";
 import { useEnterSendMode, setEnterSendMode } from "@/hooks/useEnterSendMode";
 import { useFilesPlacement, setFilesPlacement } from "@/hooks/useFilesPlacement";
+import { useDisplayMode } from "@/hooks/useDisplayMode";
 import { sendAgentCommand } from "@/lib/agent-client";
 import type { ProjectTrustStatus, ToolSettingsResponse } from "@/lib/api-types";
 import {
@@ -36,6 +36,9 @@ import { PluginsConfig } from "./PluginsConfig";
 import { McpConfig } from "./McpConfig";
 import { ConfigButton, ConfigDetailNavigationContext, ConfigSwitch, type ConfigDetailNavigation } from "./SettingsUi";
 import { FontSettings } from "./FontSettings";
+import { ThemeBrowser } from "./ThemeBrowser";
+
+const AppearanceStudio = dynamic(() => import("./AppearanceStudio").then((module) => module.AppearanceStudio));
 
 interface Props {
   cwd: string | null;
@@ -79,10 +82,10 @@ export function SettingsSectionIcon({ section, size = 16, strokeWidth = 1.8 }: {
 
 function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, onQuoteSelectionChange }: Pick<Props, "sessionId" | "onSessionReloaded" | "quoteSelectionEnabled" | "onQuoteSelectionChange">) {
   const { locale, setLocale, supportedLocales, t } = useI18n();
-  const { preference, setThemePreference } = useTheme();
   const { width: chatContentWidth, setWidth: setChatContentWidth, fontSize, setFontSize } = useChatAppearance();
   const enterSendMode = useEnterSendMode();
   const filesPlacement = useFilesPlacement();
+  const { minimal: minimalDisplay, setMinimal: setMinimalDisplay } = useDisplayMode();
   const [shellSettings, setShellSettings] = useState<ToolSettingsResponse | null>(null);
   const [shellSaving, setShellSaving] = useState(false);
   const [shellError, setShellError] = useState<string | null>(null);
@@ -216,44 +219,45 @@ function GeneralSettings({ sessionId, onSessionReloaded, quoteSelectionEnabled, 
     <div className="settings-general">
       <section className="settings-general-section">
         <h3 className="settings-general-heading">{t("settings.appearance")}</h3>
-        <div role="radiogroup" aria-label={t("settings.appearance")} className="settings-theme-options">
-          {THEME_OPTIONS.map((option) => {
-            const selected = preference === option.id;
-            return (
-              <label
-                key={option.id}
-                className="settings-theme-option"
-                data-system={option.id === "auto" || undefined}
-                data-wide={option.id === "contrast-light" || option.id === "contrast-dark" || option.id === "zenburn" || undefined}
-              >
-                <input
-                  type="radio"
-                  name="theme"
-                  value={option.id}
-                  checked={selected}
-                  onChange={() => setThemePreference(option.id)}
-                  className="sr-only"
-                />
-                {/* A data-theme span paints with that theme's own variables. System is a switch, not a
-                    palette: a neutral tile with a light and a dark chip beside its name. */}
-                {option.id === "auto" ? (
-                  <span className="settings-theme-swatch settings-theme-system" aria-hidden="true">
-                    <span data-theme="light" className="settings-theme-chip" />
-                    <span data-theme="dark" className="settings-theme-chip" />
-                    <span className="settings-theme-system-name">{t(option.label)}</span>
-                  </span>
-                ) : (
-                  <span className="settings-theme-swatch" aria-hidden="true">
-                    <span data-theme={option.id} className="settings-theme-fill">
-                      <span className="settings-theme-name">{t(option.label)}</span>
-                    </span>
-                  </span>
-                )}
-                <span className="sr-only">{t(option.label)}</span>
-              </label>
-            );
-          })}
+        <ThemeBrowser />
+        <div className="settings-general-section">
+          <div className="settings-chat-options">
+            <div
+              className="settings-chat-option settings-chat-switch-option"
+              role="radiogroup"
+              aria-label={t("settings.displayMode")}
+              aria-describedby="settings-display-mode-description"
+            >
+              <span>{t("settings.displayMode")}</span>
+              <div className="settings-send-mode-options">
+                <label className="settings-send-mode-option">
+                  <input
+                    type="radio"
+                    name="display-mode"
+                    value="standard"
+                    checked={!minimalDisplay}
+                    onChange={() => setMinimalDisplay(false)}
+                    className="sr-only"
+                  />
+                  <span className="settings-send-mode-label">{t("settings.displayModeStandard")}</span>
+                </label>
+                <label className="settings-send-mode-option">
+                  <input
+                    type="radio"
+                    name="display-mode"
+                    value="minimal"
+                    checked={minimalDisplay}
+                    onChange={() => setMinimalDisplay(true)}
+                    className="sr-only"
+                  />
+                  <span className="settings-send-mode-label">{t("settings.displayModeMinimal")}</span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <p id="settings-display-mode-description" className="settings-general-description">{t("settings.displayModeDescription")}</p>
         </div>
+        <AppearanceStudio />
       </section>
 
       <section className="settings-general-section">

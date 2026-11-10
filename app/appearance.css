@@ -1,0 +1,147 @@
+/* Customizations are root tokens or selectors so the transcript doesn't
+   subscribe to every adjustment. Base values match the normal Pi Web UI. */
+:root {
+  --top-bar-height: var(--pi-toolbar-height, 36px);
+  --pi-ui-size-offset: calc(var(--pi-interface-size, 13px) - 13px);
+  --pi-soft-border: var(--border);
+}
+
+@supports (color: color-mix(in srgb, white, black)) {
+  :root {
+    --pi-soft-border: color-mix(in srgb, var(--border) var(--pi-border-strength, 100%), transparent);
+  }
+}
+
+@media (max-width: 640px), (pointer: coarse) {
+  :root { --top-bar-height: max(44px, var(--pi-toolbar-height, 44px)); }
+}
+
+[data-pi-toolbar] button:not([data-mobile-toolbar-action]) {
+  font-size: calc(11px + var(--pi-ui-size-offset)) !important;
+}
+
+[data-pi-toolbar] > div,
+.sidebar-container,
+.settings-dialog-surface {
+  border-color: var(--pi-soft-border) !important;
+}
+
+.settings-general-heading {
+  font-size: calc(13px + var(--pi-ui-size-offset));
+}
+
+.settings-general-description,
+.settings-section-tabs button {
+  font-size: calc(11px + var(--pi-ui-size-offset));
+}
+
+.settings-chat-option,
+.chat-input-controls button {
+  font-size: calc(12px + var(--pi-ui-size-offset)) !important;
+}
+
+.sidebar-container :is(.session-tree-main, .session-tree-message, .sidebar-footer button, .file-tree-name) {
+  font-size: var(--pi-sidebar-size, 12px);
+}
+
+.chat-content .markdown-body {
+  line-height: var(--pi-line-height, 1.7);
+}
+
+.chat-content .markdown-code-block,
+.chat-content .markdown-body > pre,
+.settings-dialog-surface {
+  border-radius: var(--pi-radius, 8px);
+}
+
+.config-button {
+  border-radius: var(--pi-radius, 5px);
+}
+
+.chat-content [data-message-role="assistant"] {
+  background: var(--assistant-bg);
+  border-radius: var(--pi-radius, 0px);
+}
+
+html[data-pi-chat-alignment="left"] .chat-content [data-chat-column] {
+  margin-inline: 0 auto !important;
+}
+
+html[data-pi-message-style="flat"] [data-user-bubble]:not([data-editing]) {
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+html[data-pi-message-style="outline"] [data-user-bubble]:not([data-editing]) {
+  background: transparent !important;
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--pi-soft-border)) !important;
+}
+
+.chat-content .assistant-message-copy:focus-visible {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
+@media (hover: none) {
+  .chat-content[data-chat-display-mode="minimal"] .assistant-message-copy {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+  }
+}
+
+/* Hide optional metadata visually, preserving its layout and accessible
+   text. Errors and the Stopped marker stay visible. */
+.chat-content :is(.assistant-message-metadata, .assistant-message-usage:not([data-stopped]), .assistant-message-usage[data-stopped] > span:not(:first-child), .message-timestamp) {
+  opacity: var(--pi-metadata-rest, 1);
+  transition: opacity .14s ease;
+}
+
+.chat-content [data-message-role]:is(:hover, :focus-within) :is(.assistant-message-metadata, .assistant-message-usage:not([data-stopped]), .assistant-message-usage[data-stopped] > span:not(:first-child), .message-timestamp) {
+  opacity: var(--pi-metadata-revealed, 1);
+}
+
+html[data-pi-message-metadata="hidden"] .chat-content {
+  --pi-metadata-rest: 0;
+  --pi-metadata-revealed: 0;
+}
+
+html[data-pi-message-metadata="hover"] .chat-content {
+  --pi-metadata-rest: 0;
+}
+
+html[data-pi-extension-status="hidden"] .extension-status-shelf:not(.has-widgets):not(.has-commands) {
+  display: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  html:not([data-pi-message-metadata]) .chat-content[data-chat-display-mode="minimal"] {
+    --pi-metadata-rest: 0;
+  }
+
+  :is(
+    html[data-pi-extension-status="hover"] .chat-content,
+    html:not([data-pi-extension-status]) .chat-content[data-chat-display-mode="minimal"]
+  ) .extension-status-shelf:not(.has-widgets):not(.has-commands):not(:hover) {
+    opacity: 0;
+  }
+
+  :is(
+    html[data-pi-composer-controls="hover"] .chat-content,
+    html:not([data-pi-composer-controls]) .chat-content[data-chat-display-mode="minimal"]
+  ) .chat-composer-advanced:not(:hover):not(:focus-within) .chat-composer-quiet:not([data-open="true"]) {
+    opacity: 0 !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-content :is(.assistant-message-metadata, .assistant-message-usage, .message-timestamp) {
+    transition: none;
+  }
+}
+
+html[data-pi-motion="reduced"] :is(*, *::before, *::after) {
+  animation-duration: 1ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 1ms !important;
+  scroll-behavior: auto !important;
+}

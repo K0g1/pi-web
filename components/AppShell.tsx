@@ -24,6 +24,8 @@ import { newTerminalTab, restoreTerminalTabs, TERMINAL_TABS_KEY, type TerminalTa
 import { appendSideTab, restoreSideTabs, sideTabsKey } from "./side-tab-state";
 import { useTheme } from "@/hooks/useTheme";
 import { useFontPreferences } from "@/hooks/useFontPreferences";
+import { useDisplayMode } from "@/hooks/useDisplayMode";
+import { useAppearanceChoice } from "@/hooks/useAppearancePreferences";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile, useIsNarrowMobile } from "@/hooks/useIsMobile";
 import { useViewportHeight } from "@/hooks/useViewportHeight";
@@ -81,6 +83,7 @@ import { createSideChat, deleteSideChat } from "@/lib/side-chat-client";
 import { getAgentsBadge, getSessionFamily, isHiddenRelation, sideChatTitle } from "@/lib/session-family";
 import { getLastSettingsSection, settingsSectionRequiresProject, type SettingsSection } from "@/lib/settings-navigation";
 import { focusIfLost } from "@/lib/stacked-dialog";
+import topBarStyles from "./AppShell.topbar.module.css";
 
 type SessionCopyField = "file" | "id" | "projectDir" | "gitBranch" | "gitWorktree";
 type AutoNameStatus =
@@ -110,6 +113,9 @@ export function AppShell() {
   useTheme();
   // Restore fonts even when Settings and the chat composer have not been opened.
   useFontPreferences();
+  const { minimal } = useDisplayMode();
+  const topBarChoice = useAppearanceChoice("topBar");
+  const tuckTopBar = topBarChoice === "hover" || (topBarChoice === "auto" && minimal);
   const { locale, t: translate } = useI18n();
   const isMobile = useIsMobile();
   const isNarrowMobile = useIsNarrowMobile();
@@ -251,6 +257,7 @@ export function AppShell() {
   }, [rightPanelOpen, isMobile]);
   const [mobileToolbarMoreOpen, setMobileToolbarMoreOpen] = useState(false);
   const moreControlsLabel = mobileToolbarMoreOpen ? translate("chat.close") : translate("chat.moreControls");
+  const [minimalControlsOpen, setMinimalControlsOpen] = useState(false);
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
   const sidebarWidthRef = useRef(SIDEBAR_DEFAULT_WIDTH);
   const rightPanelWidthRef = useRef(RIGHT_PANEL_FALLBACK_WIDTH);
@@ -323,7 +330,10 @@ export function AppShell() {
   // `/side <prompt>`: the text that seeds the side chat's composer, until its panel consumes it.
   const [sideChatPrompts, setSideChatPrompts] = useState<Record<string, string>>({});
   const topBarRef = useRef<HTMLDivElement>(null);
+  const topPanelRef = useRef<HTMLDivElement>(null);
   const mobileToolbarRef = useRef<HTMLDivElement>(null);
+  const minimalControlsHostRef = useRef<HTMLDivElement>(null);
+  const controlsDockRef = useRef<HTMLDivElement>(null);
   // Branch navigator state — populated by ChatWindow via onBranchDataChange
   const [branchTree, setBranchTree] = useState<SessionTreeNode[]>([]);
   const [branchActiveLeafId, setBranchActiveLeafId] = useState<string | null>(null);
@@ -410,6 +420,9 @@ export function AppShell() {
   // Single active panel — only one dropdown open at a time
   const [activeTopPanel, setActiveTopPanel] = useState<"agents" | "branches" | "system" | "tools" | "session" | "debug" | null>(null);
   const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const minimalControlsLabel = minimalControlsOpen || activeTopPanel !== null || mobileToolbarMoreOpen
+    ? translate("chat.hideControls")
+    : translate("chat.showControls");
 
   useEffect(() => {
     if (!sessionHasBranches) {
@@ -426,6 +439,19 @@ export function AppShell() {
   useEffect(() => {
     if (rightPanelFullWidth) setActiveTopPanel(null);
   }, [rightPanelFullWidth]);
+
+  // Minimal starts with its technical controls tucked away. A panel opened from
+  // the dock keeps the dock visible until that panel closes.
+  useEffect(() => {
+    setMinimalControlsOpen(false);
+    if (!tuckTopBar) return;
+    setActiveTopPanel(null);
+    setMobileToolbarMoreOpen(false);
+  }, [tuckTopBar]);
+
+  useEffect(() => {
+    if (tuckTopBar && isMobile && (sidebarOpen || rightPanelOpen)) setMinimalControlsOpen(false);
+  }, [isMobile, tuckTopBar, rightPanelOpen, sidebarOpen]);
 
   const toggleTopPanel = useCallback((
     panel: "agents" | "branches" | "system" | "tools" | "session" | "debug",
@@ -484,6 +510,7 @@ export function AppShell() {
     if (isMobile) {
       setActiveTopPanel(null);
       setMobileToolbarMoreOpen(false);
+      setMinimalControlsOpen(false);
     }
     setSidebarOpen((open) => {
       const next = !open;
@@ -498,11 +525,23 @@ export function AppShell() {
     setMobileToolbarMoreOpen((open) => !open);
   }, []);
 
+  const handleMinimalControlsToggle = useCallback(() => {
+    if (isMobile) setSidebarOpen(false);
+    if (minimalControlsOpen || activeTopPanel !== null || mobileToolbarMoreOpen) {
+      setMinimalControlsOpen(false);
+      setActiveTopPanel(null);
+      setMobileToolbarMoreOpen(false);
+      return;
+    }
+    setMinimalControlsOpen(true);
+  }, [activeTopPanel, isMobile, minimalControlsOpen, mobileToolbarMoreOpen]);
+
   const handleRightPanelToggle = useCallback(() => {
     if (isMobile) {
       setSidebarOpen(false);
       setActiveTopPanel(null);
       setMobileToolbarMoreOpen(false);
+      setMinimalControlsOpen(false);
     }
     setRightPanelOpen((open) => !open);
   }, [isMobile]);
@@ -536,6 +575,35 @@ export function AppShell() {
   }, [mobileToolbarMoreOpen]);
 
   useEffect(() => {
+    if (!tuckTopBar || (!minimalControlsOpen && !activeTopPanel)) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const path = event.composedPath();
+      if (minimalControlsHostRef.current && path.includes(minimalControlsHostRef.current)) return;
+      // A panel is an extension of the dock while it is open.
+      if (topPanelRef.current && path.includes(topPanelRef.current)) return;
+      setMinimalControlsOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (activeTopPanel === "debug" || mobileToolbarMoreOpen) return;
+      const path = event.composedPath();
+      if (!path.includes(minimalControlsHostRef.current!) && !path.includes(topPanelRef.current!)) return;
+      event.preventDefault();
+      setMinimalControlsOpen(false);
+      setActiveTopPanel(null);
+      minimalControlsHostRef.current?.querySelector("button")?.focus();
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [activeTopPanel, mobileToolbarMoreOpen, tuckTopBar, minimalControlsOpen]);
+
+  useEffect(() => {
     setMobileToolbarMoreOpen(false);
   }, [isMobile, isNarrowMobile, selectedSession?.id, newSessionDraftId]);
 
@@ -543,21 +611,23 @@ export function AppShell() {
     if (!activeTopPanel || !topBarRef.current) return;
     const update = () => {
       const topBarRect = topBarRef.current!.getBoundingClientRect();
+      const top = topBarRect.bottom + (tuckTopBar ? controlsDockRef.current?.offsetHeight ?? 0 : 0);
       if (activeTopPanel === "agents") {
         setTopPanelPos({
-          top: topBarRect.bottom,
+          top,
           left: topBarRect.left,
           width: Math.min(AGENT_PANEL_WIDTH, topBarRect.width),
         });
         return;
       }
-      setTopPanelPos({ top: topBarRect.bottom, left: topBarRect.left, width: topBarRect.width });
+      setTopPanelPos({ top, left: topBarRect.left, width: topBarRect.width });
     };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(topBarRef.current);
+    if (tuckTopBar && controlsDockRef.current) ro.observe(controlsDockRef.current);
     return () => ro.disconnect();
-  }, [activeTopPanel, isMobile]);
+  }, [activeTopPanel, isMobile, tuckTopBar]);
 
   // Files unmount when inactive; workspace terminals stay mounted until closed.
   const [fileTabs, setFileTabs] = useState<Tab[]>([]);
@@ -1676,14 +1746,62 @@ export function AppShell() {
     </>
   );
 
-  const renderProjectTrustWarning = (mobileBanner: boolean) => {
+  const renderProjectTrustWarning = (mobileBanner: boolean, compact = false) => {
     if (!showChat || !projectTrust?.requiresTrust || projectTrust.trusted) return null;
+    const label = translate("trust.resourcesNotLoaded");
+    const icon = (
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        style={{ flexShrink: 0 }}
+      >
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
+        <path d="M12 8v4" />
+        <path d="M12 16h.01" />
+      </svg>
+    );
+
+    if (compact) {
+      return (
+        <button
+          type="button"
+          onClick={openProjectTrustDialog}
+          title={label}
+          aria-label={label}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: TOP_BAR_ICON_BUTTON_SIZE,
+            height: "100%",
+            padding: 0,
+            background: "color-mix(in srgb, #d97706 8%, var(--bg-panel))",
+            border: "none",
+            borderRight: "1px solid var(--border)",
+            color: "#d97706",
+            cursor: "pointer",
+            flexShrink: 0,
+          }}
+          data-minimal-trust-warning="true"
+        >
+          {icon}
+        </button>
+      );
+    }
+
     return (
       <button
         type="button"
         onClick={openProjectTrustDialog}
-        title={translate("trust.resourcesNotLoaded")}
-        aria-label={translate("trust.resourcesNotLoaded")}
+        title={label}
+        aria-label={label}
         style={{
           display: "flex",
           alignItems: "center",
@@ -1706,23 +1824,8 @@ export function AppShell() {
         }}
         data-mobile-trust-banner={mobileBanner ? "true" : undefined}
       >
-        <svg
-          width="13"
-          height="13"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-          style={{ flexShrink: 0 }}
-        >
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
-          <path d="M12 8v4" />
-          <path d="M12 16h.01" />
-        </svg>
-        <span>{translate("trust.resourcesNotLoaded")}</span>
+        {icon}
+        <span>{label}</span>
       </button>
     );
   };
@@ -1935,24 +2038,24 @@ export function AppShell() {
           );
         })()}
         {!(mobile && isNarrowMobile) && renderAgentsButton(mobile)}
-        {sessionHasBranches && (mobile ? (
+        {sessionHasBranches && (mobile || tuckTopBar ? (
           <button
             type="button"
-            onClick={() => toggleTopPanel("branches", true)}
+            onClick={() => toggleTopPanel("branches", mobile)}
             title={translate("i18n.branches")}
             aria-label={translate("i18n.branches")}
             aria-pressed={activeTopPanel === "branches"}
             style={{
-              display: "flex", alignItems: "center", justifyContent: "center",
-              width: TOP_BAR_ICON_BUTTON_SIZE, height: "100%", padding: 0,
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+              width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined, height: "100%", padding: mobile ? 0 : "0 12px",
               background: activeTopPanel === "branches" ? "var(--bg-selected)" : "none",
               border: "none",
               borderTop: activeTopPanel === "branches" ? "2px solid var(--accent)" : "2px solid transparent",
               borderRight: "1px solid var(--border)",
               color: activeTopPanel === "branches" ? "var(--text)" : "var(--text-muted)",
-              cursor: "pointer", flexShrink: 0,
+              cursor: "pointer", flexShrink: 0, fontSize: 11, whiteSpace: "nowrap",
             }}
-            data-mobile-toolbar-action="branches"
+            data-mobile-toolbar-action={mobile ? "branches" : undefined}
           >
             <svg width={mobile ? 16 : 12} height={mobile ? 16 : 12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: branchTree.length > 0 ? "var(--accent)" : "var(--text-dim)" }} aria-hidden="true">
               <line x1="6" y1="3" x2="6" y2="15" />
@@ -1960,6 +2063,7 @@ export function AppShell() {
               <circle cx="6" cy="18" r="3" />
               <path d="M18 9a9 9 0 0 1-9 9" />
             </svg>
+            {!mobile && translate("i18n.branches")}
           </button>
         ) : (
           <BranchNavigator
@@ -2287,6 +2391,96 @@ export function AppShell() {
     );
   };
 
+  const renderMobileTechnicalControls = () => (
+    <div
+      ref={mobileToolbarRef}
+      data-mobile-toolbar="true"
+      style={{
+        position: "relative",
+        display: "flex",
+        alignItems: "stretch",
+        flex: 1,
+        minWidth: 0,
+        height: "100%",
+      }}
+    >
+      {isNarrowMobile && renderAgentsButton(true)}
+      {isNarrowMobile && (
+        <button
+          type="button"
+          onClick={handleMobileToolbarMoreToggle}
+          title={moreControlsLabel}
+          aria-label={moreControlsLabel}
+          aria-controls="mobile-toolbar-actions"
+          aria-expanded={mobileToolbarMoreOpen}
+          data-mobile-toolbar-more="true"
+          style={{
+            position: "relative",
+            zIndex: mobileToolbarMoreOpen ? 21 : undefined,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
+            background: mobileToolbarMoreOpen ? "var(--bg-selected)" : "none",
+            border: "none", borderRight: "1px solid var(--border)",
+            color: mobileToolbarMoreOpen ? "var(--text)" : "var(--text-muted)",
+            cursor: "pointer", flexShrink: 0, transition: "color 0.12s, background 0.12s",
+          }}
+        >
+          {mobileToolbarMoreOpen ? (
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <line x1="5" y1="5" x2="19" y2="19" /><line x1="19" y1="5" x2="5" y2="19" />
+            </svg>
+          ) : (
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <circle cx="5" cy="12" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" />
+            </svg>
+          )}
+        </button>
+      )}
+      {!isNarrowMobile && renderChatToolbarActions(true)}
+      {!isNarrowMobile && renderDebugButton(true)}
+      {renderSessionStatsButton(true)}
+      {renderMainFileToggle(true)}
+      {isNarrowMobile && mobileToolbarMoreOpen && (
+        <div
+          id="mobile-toolbar-actions"
+          role="toolbar"
+          aria-label={translate("chat.moreControls")}
+          data-mobile-toolbar-actions="true"
+          style={{
+            position: "absolute",
+            top: 0,
+            right: 0,
+            bottom: 0,
+            // Right of the Agents and More buttons, which stay in place.
+            left: `calc(2 * ${TOP_BAR_ICON_BUTTON_SIZE})`,
+            zIndex: 20,
+            display: "flex",
+            alignItems: "stretch",
+            // More buttons than a 320px phone fits (the Debug button made seven): scroll, never clip.
+            overflowX: "auto",
+            overflowY: "hidden",
+            scrollbarWidth: "none",
+            background: "color-mix(in srgb, var(--bg-panel) 94%, var(--bg))",
+            boxShadow: "4px 0 18px rgba(0,0,0,0.12)",
+            backdropFilter: "blur(10px)",
+          }}
+        >
+          {renderChatToolbarActions(true)}
+          {renderDebugButton(true)}
+        </div>
+      )}
+    </div>
+  );
+
+  const renderDesktopTechnicalControls = () => (
+    <>
+      {renderChatToolbarActions(false)}
+      {renderDebugButton(false)}
+      {renderSessionStatsButton(false)}
+      {renderMainFileToggle(false)}
+    </>
+  );
+
   return (
     <>
     <style>{`
@@ -2431,7 +2625,7 @@ export function AppShell() {
       {/* Center: chat */}
       <div inert={rightPanelFullWidth} style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
         {/* Top bar with sidebar toggle */}
-        <div ref={topBarRef} style={{ flexShrink: 0, background: "var(--bg-panel)" }}>
+        <div ref={topBarRef} data-pi-toolbar="" style={{ flexShrink: 0, background: "var(--bg-panel)" }}>
         <div style={{ display: "flex", alignItems: "center", position: "relative", borderBottom: "1px solid var(--border)", height: "calc(var(--top-bar-height) + env(safe-area-inset-top))", paddingTop: "env(safe-area-inset-top)" }}>
           <button
             onClick={handleSidebarToggle}
@@ -2456,104 +2650,61 @@ export function AppShell() {
               </svg>
             )}
           </button>
-          {isMobile && (
-            <div
-              ref={mobileToolbarRef}
-              data-mobile-toolbar="true"
-              style={{
-                position: "relative",
-                display: "flex",
-                alignItems: "stretch",
-                flex: 1,
-                minWidth: 0,
-                height: "100%",
-              }}
-            >
-              {isNarrowMobile && renderAgentsButton(true)}
-              {isNarrowMobile && (
-                <button
-                  type="button"
-                  onClick={handleMobileToolbarMoreToggle}
-                  title={moreControlsLabel}
-                  aria-label={moreControlsLabel}
-                  aria-controls="mobile-toolbar-actions"
-                  aria-expanded={mobileToolbarMoreOpen}
-                  data-mobile-toolbar-more="true"
-                  style={{
-                    position: "relative",
-                    zIndex: mobileToolbarMoreOpen ? 21 : undefined,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
-                    background: mobileToolbarMoreOpen ? "var(--bg-selected)" : "none",
-                    border: "none", borderRight: "1px solid var(--border)",
-                    color: mobileToolbarMoreOpen ? "var(--text)" : "var(--text-muted)",
-                    cursor: "pointer", flexShrink: 0, transition: "color 0.12s, background 0.12s",
-                  }}
-                >
-                  {mobileToolbarMoreOpen ? (
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-                      <line x1="5" y1="5" x2="19" y2="19" /><line x1="19" y1="5" x2="5" y2="19" />
-                    </svg>
-                  ) : (
-                    <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                      <circle cx="5" cy="12" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" />
-                    </svg>
-                  )}
-                </button>
-              )}
-              {!isNarrowMobile && renderChatToolbarActions(true)}
-              {!isNarrowMobile && renderDebugButton(true)}
-              {renderSessionStatsButton(true)}
-              {renderMainFileToggle(true)}
-              {isNarrowMobile && mobileToolbarMoreOpen && (
-                <div
-                  id="mobile-toolbar-actions"
-                  role="toolbar"
-                  aria-label={translate("chat.moreControls")}
-                  data-mobile-toolbar-actions="true"
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    right: 0,
-                    bottom: 0,
-                    // Right of the Agents and More buttons, which stay in place.
-                    left: `calc(2 * ${TOP_BAR_ICON_BUTTON_SIZE})`,
-                    zIndex: 20,
-                    display: "flex",
-                    alignItems: "stretch",
-                    // More buttons than a 320px phone fits (the Debug button made seven): scroll, never clip.
-                    overflowX: "auto",
-                    overflowY: "hidden",
-                    scrollbarWidth: "none",
-                    background: "color-mix(in srgb, var(--bg-panel) 94%, var(--bg))",
-                    boxShadow: "4px 0 18px rgba(0,0,0,0.12)",
-                    backdropFilter: "blur(10px)",
-                  }}
-                >
-                  {renderChatToolbarActions(true)}
-                  {renderDebugButton(true)}
-                </div>
-              )}
-            </div>
-          )}
-          {!isMobile && (
+          {isMobile && !tuckTopBar && renderMobileTechnicalControls()}
+          {!isMobile && !tuckTopBar && (
             <>
               {renderProjectTrustWarning(false)}
-              {renderChatToolbarActions(false)}
-              {renderDebugButton(false)}
-              {renderSessionStatsButton(false)}
+              {renderDesktopTechnicalControls()}
             </>
           )}
-          {!isMobile && renderMainFileToggle(false)}
-          {isMobile && sessionHasBranches && (
+          {tuckTopBar && (
+            <>
+              {!isMobile && renderProjectTrustWarning(false)}
+              {isMobile && renderProjectTrustWarning(false, true)}
+              <div
+                ref={minimalControlsHostRef}
+                className={topBarStyles.minimalControlsHost}
+                data-open={minimalControlsOpen ? "true" : undefined}
+                data-panel-open={activeTopPanel || mobileToolbarMoreOpen ? "true" : undefined}
+              >
+                <button
+                  type="button"
+                  onClick={handleMinimalControlsToggle}
+                  title={minimalControlsLabel}
+                  aria-label={translate("chat.controls")}
+                  aria-controls="minimal-topbar-controls"
+                  aria-expanded={minimalControlsOpen || activeTopPanel !== null || mobileToolbarMoreOpen}
+                  className={topBarStyles.minimalControlsToggle}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M4 6h8M16 6h4M4 12h3M11 12h9M4 18h10M18 18h2" />
+                    <circle cx="14" cy="6" r="2" />
+                    <circle cx="9" cy="12" r="2" />
+                    <circle cx="16" cy="18" r="2" />
+                  </svg>
+                </button>
+                <div
+                  ref={controlsDockRef}
+                  id="minimal-topbar-controls"
+                  role="group"
+                  aria-label={translate("chat.controls")}
+                  className={topBarStyles.minimalControlsDock}
+                >
+                  {isMobile ? renderMobileTechnicalControls() : renderDesktopTechnicalControls()}
+                </div>
+              </div>
+            </>
+          )}
+          {(isMobile || tuckTopBar) && sessionHasBranches && (
             <BranchNavigator
               tree={branchTree}
               activeLeafId={branchActiveLeafId}
               onLeafChange={handleBranchLeafChange}
               locked={branchSwitchLocked}
               inline
-              compact
+              compact={isMobile}
               containerRef={topBarRef}
+              belowRef={tuckTopBar ? controlsDockRef : undefined}
               open={activeTopPanel === "branches"}
               onToggle={() => toggleTopPanel("branches")}
               hasSession={showChat}
@@ -2562,7 +2713,7 @@ export function AppShell() {
           )}
           {/* Top panel dropdown — shared, only one active at a time */}
           {activeTopPanel && topPanelPos && (
-            <div style={{
+            <div ref={topPanelRef} style={{
               position: "fixed",
               top: topPanelPos.top,
               left: topPanelPos.left,
@@ -2807,7 +2958,7 @@ export function AppShell() {
           )}
 
         </div>
-        {isMobile && renderProjectTrustWarning(true)}
+        {isMobile && !minimal && renderProjectTrustWarning(true)}
         </div>
 
         {/* Chat content */}

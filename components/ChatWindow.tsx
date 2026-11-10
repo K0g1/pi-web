@@ -2,7 +2,7 @@
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
 import { isHiddenRelation, SIDE_BOUNDARY_MESSAGE_TYPE } from "@/lib/session-family";
 import Image from "next/image";
-import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage } from "@/lib/types";
 import { normalizeCustomPanelLines, stripAnsi } from "@/lib/ansi";
@@ -22,12 +22,14 @@ import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { AnsiText } from "./AnsiText";
 import { useI18n } from "@/hooks/useI18n";
-import { phaseLabel } from "@/lib/chat-phase-label";
+import { phaseLabel, type Translate } from "@/lib/chat-phase-label";
 import { useAgentSession, type AgentEndInfo, type NewSessionChoices, type NoticeItem } from "@/hooks/useAgentSession";
 import { selectHasStreamingContent, selectIsStreaming, selectStreamingMessage, useStreamingSelector } from "@/hooks/useStreamingSelector";
 import type { StreamingStore } from "@/lib/streaming-message";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useDisplayMode } from "@/hooks/useDisplayMode";
+import { useAppearanceChoice } from "@/hooks/useAppearancePreferences";
 import { useScrollbarVisibility } from "@/hooks/useScrollbarVisibility";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import type { DebugClientSession } from "@/lib/debug-types";
@@ -46,6 +48,8 @@ import {
   restoreScrollTop,
   VISIBLE_PAGE_SIZE,
 } from "@/lib/chat-lazy-load";
+import { MinimalTurnActivity, type LiveTurnActivity } from "./MinimalTurnActivity";
+import minimalStyles from "./MinimalChat.module.css";
 
 interface Props {
   session: SessionInfo | null;
@@ -100,7 +104,7 @@ interface Props {
   holdAudio?: () => () => void;
 }
 const CHAT_MINIMAP_WIDTH = 36;
-const CHAT_COLUMN_PADDING = 16;
+const CHAT_COLUMN_PADDING = "var(--pi-composer-inset, 16px)";
 
 // One update check per page. Every fresh composer mounts the header again
 // (each move of the new-session bar does), and a link that turned up late
@@ -201,15 +205,20 @@ function getUserInputText(message: AgentMessage): string | null {
   return text.length > 0 ? text : null;
 }
 
-function ProcessDetailsGroup({ messageCount, toolCallCount, durationMs, cacheMisses, defaultExpanded = false, reveal = false, children, t }: { messageCount: number; toolCallCount: number; durationMs?: number; cacheMisses?: CacheMissSummary; defaultExpanded?: boolean; reveal?: boolean; children: ReactNode; t: (key: string, params?: Record<string, string | number>) => string }) {
+function processDetailsParts(messageCount: number, toolCallCount: number, durationMs: number | undefined, t: Translate) {
+  const parts = [`${messageCount} ${t(messageCount === 1 ? "chat.message" : "chat.messages")}`];
+  if (toolCallCount > 0) parts.push(`${toolCallCount} ${t(toolCallCount === 1 ? "chat.toolCall" : "chat.toolCalls")}`);
+  if (durationMs !== undefined) parts.push(t("chat.turnDuration", { time: formatTurnDuration(durationMs) }));
+  return parts;
+}
+
+function ProcessDetailsGroup({ messageCount, toolCallCount, durationMs, cacheMisses, defaultExpanded = false, reveal = false, children, t }: { messageCount: number; toolCallCount: number; durationMs?: number; cacheMisses?: CacheMissSummary; defaultExpanded?: boolean; reveal?: boolean; children: ReactNode; t: Translate }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   useLayoutEffect(() => {
     if (reveal) setExpanded(true);
   }, [reveal]);
   // The chevron already says this folds; the words stay in the accessible name.
-  const parts = [`${messageCount} ${t(messageCount === 1 ? "chat.message" : "chat.messages")}`];
-  if (toolCallCount > 0) parts.push(`${toolCallCount} ${t(toolCallCount === 1 ? "chat.toolCall" : "chat.toolCalls")}`);
-  if (durationMs !== undefined) parts.push(t("chat.turnDuration", { time: formatTurnDuration(durationMs) }));
+  const parts = processDetailsParts(messageCount, toolCallCount, durationMs, t);
   // Folded, the cache misses inside are added up here (#1265); open, each shows under its step.
   const cacheMissText = cacheMisses && !(expanded || reveal) ? cacheMissSummaryText(t, cacheMisses) : undefined;
 
@@ -257,6 +266,11 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, durationMs, cacheMis
 export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initialScrollPosition, onScrollPositionChange, sessionRunning, newSessionCwd, newSessionDraftKey, newSessionContextBar, initialNewSessionChoices, onNewSessionChoicesChange, onAgentEnd, onToolEnd, onAttentionNeeded, onSessionCreated, onSessionForked, panel = false, onSideSession, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSystemToolsChange, onSystemInfoLoaderChange, onDebugSnapshotReaderChange, onSessionStatsChange, onSessionStatsPanelOpen, onOpenSettings, onContextUsageChange, onOpenFile, onFilesUploaded, onOpenSubagent, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, soundEnabled = true, onSoundToggle, playDoneSound = () => {}, unlockAudio, holdAudio }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
+  const { minimal } = useDisplayMode();
+  const minimapChoice = useAppearanceChoice("minimap");
+  const hasMinimap = !isMobile && minimapChoice !== "hidden";
+  const Minimap = minimapChoice === "hover" || (minimapChoice === "auto" && minimal) ? HoverMinimap : ChatMinimap;
+  const minimapGutter = hasMinimap ? CHAT_MINIMAP_WIDTH : 0;
   const completionNotificationsEnabled = !isHiddenRelation(session?.relation);
 
   // Wrap onAgentEnd to play the completion sound. This is more reliable than
@@ -839,6 +853,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   const isEmptyNew = isNew && messages.length === 0 && !isStreaming && !sessionBusy;
   useScrollbarVisibility(scrollContainerRef, Boolean(session?.id) || !isEmptyNew);
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
+  const messageSessionId = session?.id ?? sessionIdRef.current ?? undefined;
   const promptAnchorSpacerRef = useRef<HTMLDivElement | null>(null);
   const promptAnchorSpacerHeightRef = useRef(0);
   const promptAnchorMeasureFrameRef = useRef<number | null>(null);
@@ -939,6 +954,32 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   }, []);
   useLayoutEffect(updatePromptAnchor, [isStreaming, hasStreamingContent, updatePromptAnchor]);
 
+  const minimalLive: LiveTurnActivity | undefined = minimal && (agentRunning || isStreaming || isCompacting) ? {
+    store: streamingStore,
+    onCommit: updatePromptAnchor,
+    phase: agentPhase,
+    isCompacting,
+    queuedCount: (queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0),
+    toolResults: toolResultsMap,
+    modelNames,
+    cwd: messageCwd,
+    sessionId: messageSessionId,
+    onOpenFile,
+    onOpenSubagent,
+  } : undefined;
+  const pendingBashView = pendingBash ? (
+    <MessageView
+      message={{
+        role: "bashExecution",
+        command: pendingBash.command,
+        output: "",
+        excludeFromContext: pendingBash.excludeFromContext,
+      } as BashExecutionMessage}
+      sessionId={messageSessionId}
+      onOpenSubagent={onOpenSubagent}
+    />
+  ) : null;
+
   const availableThinkingLevels = displayModelValue
     ? (modelThinkingLevels[`${displayModelValue.provider}:${displayModelValue.modelId}`] ?? null)
     : null;
@@ -950,6 +991,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   const chatInputElement = (
     <ChatInput
       ref={chatInputRef}
+      minimapGutter={minimapGutter}
       onSend={handleSend}
       onAbort={handleAbort}
       onSideChat={onSideSession && !isHiddenRelation(session?.relation) ? askInSideChat : undefined}
@@ -1021,6 +1063,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   return (
     <div
       className="chat-content relative flex h-full min-w-0 flex-col overflow-hidden"
+      data-chat-display-mode={minimal ? "minimal" : undefined}
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
@@ -1064,12 +1107,12 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
           position: "absolute",
           top: 12,
           left: 0,
-          right: isMobile ? 0 : CHAT_MINIMAP_WIDTH,
+          right: minimapGutter,
           zIndex: 40,
           display: "flex",
           // Toasts live in the top-right corner
           justifyContent: "flex-end",
-          padding: `0 ${CHAT_COLUMN_PADDING}px`,
+          padding: `0 ${CHAT_COLUMN_PADDING}`,
           pointerEvents: "none",
         }}
       >
@@ -1093,8 +1136,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
           className="scrollbar-subtle min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-gutter:stable]"
           style={{ visibility: pendingScrollRestore ? "hidden" : undefined }}
         >
-          <div style={{ minWidth: 0, padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
-            <div ref={messageContentRef} onPointerUp={captureQuotedSelection} style={{ width: "100%", minWidth: 0, maxWidth: "var(--chat-content-max-width, 820px)", margin: "0 auto" }}>
+          <div style={{ minWidth: 0, padding: `0 ${CHAT_COLUMN_PADDING}` }}>
+            <div data-chat-column="" ref={messageContentRef} onPointerUp={captureQuotedSelection} style={{ width: "100%", minWidth: 0, maxWidth: "var(--chat-content-max-width, 820px)", margin: "0 auto" }}>
             {(() => {
               let lastUserIdx = -1;
               for (let i = messages.length - 1; i >= 0; i--) {
@@ -1165,7 +1208,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     isEditing={editEntryId === entryIds[idx]}
                     showTimestamp={showTimestamp}
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
-                    sessionId={session?.id ?? sessionIdRef.current ?? undefined}
+                    sessionId={messageSessionId}
                     writtenFiles={options.writtenFiles}
                     turnDurationMs={options.turnDurationMs}
                     onCompact={options.recoverTruncation ? handleCompact : undefined}
@@ -1202,6 +1245,52 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 let endIdx = idx + 1;
                 while (endIdx < messages.length && !isMessageGroupAnchor(messages[endIdx])) endIdx += 1;
 
+                if (minimalLive && (agentRunning || isStreaming) && endIdx === messages.length) {
+                  if (hasAnchor) rendered.push(renderMessage(userIdx));
+                  let latestAssistantIdx = endIdx - 1;
+                  while (latestAssistantIdx > userIdx && messages[latestAssistantIdx].role !== "assistant") latestAssistantIdx--;
+                  const latestAssistant = latestAssistantIdx > userIdx ? messages[latestAssistantIdx] as AssistantMessage : undefined;
+                  // A message that ends in tool use has finished streaming, but
+                  // is still an intermediate step. A committed answer or error
+                  // stays visible while the server settles the run.
+                  const finalViews = latestAssistant && latestAssistant.stopReason !== "toolUse"
+                    ? getFinalAnswerViews(finalAnswerViewCache, latestAssistant)
+                    : null;
+                  const process: ReactNode[] = [];
+                  let revealProcess = false;
+                  for (let i = userIdx + 1; i < endIdx; i++) {
+                    const message = messages[i];
+                    if (message.role === "toolResult") continue;
+                    if (message.role === "custom" && message.customType === SIDE_BOUNDARY_MESSAGE_TYPE) {
+                      rendered.push(renderMessage(i));
+                      continue;
+                    }
+                    if (isHiddenCustomMessage(message)) continue;
+                    const views = i === latestAssistantIdx ? finalViews : null;
+                    const override = views?.process ?? message;
+                    if (views?.answer && views.process.content.length === 0) continue;
+                    revealProcess ||= Boolean(pendingSearchScroll && pendingSearchScroll.entryId === entryIds[i]
+                      && (!views || !searchBlock || views.process.content.includes(searchBlock)));
+                    process.push(renderMessage(i, {
+                      attachRef: false, keyPrefix: "process", messageOverride: override,
+                      showTimestamp: false, withNotices: !views?.answer,
+                    }));
+                  }
+                  rendered.push(
+                    <div key={`process-group-${messageKeys[groupStartIdx]}`}>
+                      <MinimalTurnActivity
+                        live={minimalLive}
+                        latestAssistant={latestAssistant}
+                        process={process.length > 0 ? process : undefined}
+                        answer={finalViews?.answer ? renderMessage(latestAssistantIdx, { messageOverride: finalViews.answer }) : undefined}
+                        reveal={revealProcess}
+                      />
+                    </div>,
+                  );
+                  idx = endIdx;
+                  continue;
+                }
+
                 const finalAssistantIdx = findFinalAssistantIndex(messages, userIdx, endIdx);
 
                 if (finalAssistantIdx === -1) {
@@ -1212,7 +1301,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   continue;
                 }
 
-                const isLiveTail = (sessionBusy || isStreaming) && endIdx === messages.length && userIdx === lastAnchorIdx;
+                const isLiveTail = !minimal && (sessionBusy || isStreaming) && endIdx === messages.length && userIdx === lastAnchorIdx;
                 if (isLiveTail) {
                   for (let renderIdx = groupStartIdx; renderIdx < endIdx; renderIdx++) {
                     rendered.push(renderMessage(renderIdx));
@@ -1238,9 +1327,14 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 let processRefIdx: number | undefined;
                 let revealProcess = false;
 
-                for (let processIdx = userIdx + 1; processIdx <= finalAssistantIdx; processIdx++) {
+                const processEndIdx = minimal ? endIdx : finalAssistantIdx + 1;
+                for (let processIdx = userIdx + 1; processIdx < processEndIdx; processIdx++) {
                   const processMessage = messages[processIdx];
                   if (processMessage.role === "custom") {
+                    if (minimal && processMessage.customType === SIDE_BOUNDARY_MESSAGE_TYPE) {
+                      rendered.push(renderMessage(processIdx));
+                      continue;
+                    }
                     // Not counted either: a turn whose only extra is a hidden message has no process details.
                     if (isHiddenCustomMessage(processMessage)) continue;
                     revealProcess ||= Boolean(pendingSearchScroll && pendingSearchScroll.entryId === entryIds[processIdx]);
@@ -1275,7 +1369,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 if (processMessageCount === 0) rendered.push(...processViews);
                 else if (processViews.length > 0) {
                   const answered = collapsesProcessDetails(finalAnswerMessage);
-                  const processCacheMisses = summarizeCacheMisses(messages.slice(userIdx + 1, finalAnswerMessage ? finalAssistantIdx : finalAssistantIdx + 1));
+                  const processCacheMisses = summarizeCacheMisses(
+                    messages.slice(userIdx + 1, finalAnswerMessage ? finalAssistantIdx : finalAssistantIdx + 1),
+                  );
                   rendered.push(
                     <div
                       key={`process-group-${messageKeys[groupStartIdx]}`}
@@ -1286,9 +1382,20 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                           would otherwise stay open once its answer shows up, e.g. when
                           switching between an answered and an unanswered leaf of the same
                           turn. Manual toggles survive every other re-render. */}
-                      <ProcessDetailsGroup key={answered ? "answered" : "unanswered"} messageCount={processMessageCount} toolCallCount={processToolCount} durationMs={turnDurationMs} cacheMisses={processCacheMisses} defaultExpanded={!answered} reveal={revealProcess} t={t}>
-                        {processViews}
-                      </ProcessDetailsGroup>
+                      {minimal ? (
+                        <MinimalTurnActivity
+                          process={processViews}
+                          summary={[
+                            ...processDetailsParts(processMessageCount, processToolCount, turnDurationMs, t),
+                            ...(processCacheMisses ? [cacheMissSummaryText(t, processCacheMisses)] : []),
+                          ].join(" · ")}
+                          reveal={revealProcess}
+                        />
+                      ) : (
+                        <ProcessDetailsGroup key={answered ? "answered" : "unanswered"} messageCount={processMessageCount} toolCallCount={processToolCount} durationMs={turnDurationMs} cacheMisses={processCacheMisses} defaultExpanded={!answered} reveal={revealProcess} t={t}>
+                          {processViews}
+                        </ProcessDetailsGroup>
+                      )}
                     </div>,
                   );
                 }
@@ -1315,6 +1422,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   }));
                 }
                 for (let renderIdx = finalAssistantIdx + 1; renderIdx < endIdx; renderIdx++) {
+                  if (minimal && (messages[renderIdx].role === "assistant" || messages[renderIdx].role === "custom")) continue;
                   rendered.push(renderMessage(renderIdx));
                 }
                 idx = endIdx;
@@ -1332,41 +1440,38 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 </>
               );
             })()}
-            {isStreaming && hasStreamingContent && (
-              <StreamingReply store={streamingStore} onCommit={updatePromptAnchor} toolResults={toolResultsMap} modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} />
+            {!minimal && isStreaming && hasStreamingContent && (
+              <StreamingReply store={streamingStore} onCommit={updatePromptAnchor} toolResults={toolResultsMap} modelNames={modelNames} cwd={messageCwd} sessionId={messageSessionId} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} />
             )}
 
-            {(agentRunning || isCompacting) && !hasStreamingContent && (agentPhase || isCompacting) && (
+            {minimalLive && ((!agentRunning && !isStreaming) || messages.length === 0) && (
+              <MinimalTurnActivity live={minimalLive} />
+            )}
+
+            {!minimal && (agentRunning || isCompacting) && !hasStreamingContent && (agentPhase || isCompacting) && (
               <div className="break-words py-2 text-[13px] text-text-muted">
                 <span className="animate-[pulse_1.5s_infinite]">{phaseLabel(agentPhase, t, isCompacting, (queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0))}</span>
               </div>
             )}
 
-            {bashRunning && !pendingBash && (
+            {minimal && bashRunning && (
+              <MinimalTurnActivity command={{ text: pendingBash?.command ?? "", process: pendingBashView }} />
+            )}
+
+            {!minimal && bashRunning && !pendingBash && (
               <div className="py-2 text-[13px] text-text-muted">
                  <span className="animate-[pulse_1.5s_infinite]">{t("chat.runningCommand")}</span>
               </div>
             )}
 
-            {pendingBash && (
-              <MessageView
-                message={{
-                  role: "bashExecution",
-                  command: pendingBash.command,
-                  output: "",
-                  excludeFromContext: pendingBash.excludeFromContext,
-                } as BashExecutionMessage}
-                sessionId={session?.id ?? sessionIdRef.current ?? undefined}
-                onOpenSubagent={onOpenSubagent}
-              />
-            )}
+            {!minimal && pendingBashView}
 
             <div ref={promptAnchorSpacerRef} aria-hidden="true" />
             </div>
           </div>
         </div>
-        {isMobile || pendingScrollRestore ? null : (
-          <ChatMinimap
+        {hasMinimap && !pendingScrollRestore && (
+          <Minimap
             messages={messages}
             getStreamingMessage={getStreamingMessage}
             scrollContainer={scrollContainerRef}
@@ -1467,7 +1572,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
               position: "absolute",
               bottom: "100%",
               left: 0,
-              right: isMobile ? 0 : CHAT_MINIMAP_WIDTH,
+              right: minimapGutter,
               display: "flex",
               justifyContent: "center",
               paddingBottom: 10,
@@ -1494,8 +1599,8 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
             .new-session-context in app/globals.css; the side padding and
             width are inline here). */}
         {isEmptyNew && (
-          <div className="new-session-hero" style={{ paddingLeft: 16, paddingRight: isMobile ? 16 : 52 }}>
-            <div className="new-session-hero-inner" style={{ maxWidth: "var(--chat-content-max-width, 820px)" }}>
+          <div className="new-session-hero" style={{ paddingLeft: CHAT_COLUMN_PADDING, paddingRight: `calc(${CHAT_COLUMN_PADDING} + ${minimapGutter}px)` }}>
+            <div className="new-session-hero-inner" data-chat-column="" style={{ maxWidth: "var(--chat-content-max-width, 820px)" }}>
               <div className="new-session-brand">
                 <Image src="/icons/apple-touch-icon.png" width={40} height={40} alt="" priority className="new-session-logo" />
                 <div className="new-session-brand-text">
@@ -1525,6 +1630,39 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
   );
 }
 
+// The timeline measures message positions and builds previews. In hover mode
+// leave that work unmounted until the user actually opens the rail.
+const HoverMinimap = memo(function HoverMinimap(props: ComponentProps<typeof ChatMinimap>) {
+  const { t } = useI18n();
+  const [hovered, setHovered] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const open = hovered || pinned;
+  return (
+    <div
+      className={minimalStyles.rail}
+      onPointerEnter={(event) => { if (event.pointerType === "mouse") setHovered(true); }}
+      onPointerLeave={() => setHovered(false)}
+    >
+      <button
+        type="button"
+        className={minimalStyles.railToggle}
+        aria-label={t("chatMinimap.timeline")}
+        title={t("chatMinimap.timeline")}
+        aria-expanded={open}
+        onClick={() => {
+          if (pinned) setHovered(false);
+          setPinned(!pinned);
+        }}
+      >
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5" aria-hidden="true">
+          <path d="M5 3h7M5 8h4M5 13h7M2 3h.1M2 8h.1M2 13h.1" />
+        </svg>
+      </button>
+      {open && <ChatMinimap {...props} className={minimalStyles.railMap} />}
+    </div>
+  );
+});
+
 // The reply being streamed: the one part of the chat a chunk re-renders.
 function SideChatDivider() {
   const { t } = useI18n();
@@ -1537,20 +1675,21 @@ function SideChatDivider() {
   );
 }
 
-const StreamingReply = memo(function StreamingReply({ store, onCommit, toolResults, modelNames, cwd, onOpenFile, onOpenSubagent }: {
+const StreamingReply = memo(function StreamingReply({ store, onCommit, toolResults, modelNames, cwd, sessionId, onOpenFile, onOpenSubagent }: {
   store: StreamingStore;
   /** Runs after each chunk is in the DOM. */
   onCommit: () => void;
   toolResults: Map<string, ToolResultMessage>;
   modelNames: Record<string, string>;
   cwd?: string;
+  sessionId?: string;
   onOpenFile?: (filePath: string, page?: number) => void;
   onOpenSubagent?: (sessionId: string, label: string) => void;
 }) {
   const message = useStreamingSelector(store, selectStreamingMessage);
   useLayoutEffect(onCommit, [message, onCommit]);
   if (!message) return null;
-  return <MessageView message={message} toolResults={toolResults} isStreaming modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} />;
+  return <MessageView message={message} toolResults={toolResults} isStreaming modelNames={modelNames} cwd={cwd} sessionId={sessionId} onOpenFile={onOpenFile} onOpenSubagent={onOpenSubagent} />;
 });
 
 // A one-line notice is exactly as tall as its entrance animation pins it, and

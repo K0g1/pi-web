@@ -18,6 +18,7 @@ import { checkModelDiscovery } from "./model-discovery.mjs";
 import { checkModelOrder } from "./model-order.mjs";
 import { checkModelContext } from "./model-context.mjs";
 import { checkModelSelector } from "./model-selector.mjs";
+import { checkMinimalMode } from "./minimal-mode.mjs";
 import { checkFilesPlacement, showSidebarSessions } from "./sidebar.mjs";
 import { checkSessionNavigation } from "./session-navigation.mjs";
 import { checkProjectNavigation, createProjectNavigationFixtures } from "./project-navigation.mjs";
@@ -44,6 +45,7 @@ const RICH = "e2e-rich-session";
 const COMPACTED = "e2e-compacted-session";
 const APPEND = "e2e-external-append-session";
 const CODE_BACKGROUND = "e2e-code-background";
+const MINIMAL = "e2e-minimal-live-session";
 const text = (i) => `E2E message ${String(i).padStart(4, "0")}`;
 const ids = (start, end) => Array.from({ length: end - start }, (_, i) => `e${start + i}`);
 
@@ -53,8 +55,9 @@ function message(id, parentId, role, content) {
 
 function writeSession(id, entries) {
   const header = { type: "session", version: 3, id, timestamp, cwd: project };
-  writeFileSync(join(sessionDir, `2026-08-23T00-00-00-000Z_${id}.jsonl`),
-    [header, ...entries].map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+  const file = join(sessionDir, `2026-08-23T00-00-00-000Z_${id}.jsonl`);
+  writeFileSync(file, [header, ...entries].map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+  return file;
 }
 
 let server;
@@ -151,6 +154,9 @@ try {
     message("root", null, "user", "E2E wrapper root"),
     message("reply", "root", "assistant", "E2E wrapper reply"),
   ]);
+  const minimalSessionFile = writeSession(MINIMAL, [
+    message("prompt", null, "user", "Minimal live turn fixture"),
+  ]);
 
   const projectNavigation = createProjectNavigationFixtures({ agentDir, sessionDir, timestamp });
 
@@ -194,7 +200,7 @@ try {
     const response = await fetch(`${base}/api/sessions`, { signal: AbortSignal.timeout(5000) }).catch(() => null);
     if (response?.ok) {
       const { sessions } = await response.json();
-      assert.deepEqual(sessions.map((session) => session.id).sort(), [LONG, BRANCH, RICH, COMPACTED, APPEND, CODE_BACKGROUND, projectNavigation.id].sort());
+      assert.deepEqual(sessions.map((session) => session.id).sort(), [LONG, BRANCH, RICH, COMPACTED, APPEND, CODE_BACKGROUND, MINIMAL, projectNavigation.id].sort());
       break;
     }
     assert.ok(Date.now() < deadline, "Server readiness timed out; see server.log");
@@ -543,6 +549,7 @@ try {
     },
   });
   await checkProjectNavigation({ browser, base, artifacts, fixture: projectNavigation, otherSessionId: BRANCH, api, post });
+  await checkMinimalMode({ browser, base, artifacts, sessionId: MINIMAL, sessionFile: minimalSessionFile });
 } catch (error) {
   console.error(error);
   process.exitCode = 1;

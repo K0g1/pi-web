@@ -1,14 +1,15 @@
 {
   "name": "@agegr/pi-web",
-  "version": "0.15.0",
-  "description": "Web UI for the pi coding agent",
-  "homepage": "https://github.com/agegr/pi-web#readme",
+  "version": "0.15.0-minimal.2",
+  "private": true,
+  "description": "Web UI for the pi coding agent with a Minimal display mode",
+  "homepage": "https://github.com/K0g1/pi-web#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/agegr/pi-web.git"
+    "url": "git+https://github.com/K0g1/pi-web.git"
   },
   "bugs": {
-    "url": "https://github.com/agegr/pi-web/issues"
+    "url": "https://github.com/K0g1/pi-web/issues"
   },
   "license": "MIT",
   "engines": {
@@ -29,6 +30,9 @@
     ".next",
     "!.next/cache",
     "!.next/dev",
+    "!.next/diagnostics",
+    "!.next/trace*",
+    "!.next/types",
     "!.next/**/*.js.map",
     "public",
     "next.config.ts",

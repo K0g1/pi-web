@@ -1,6 +1,6 @@
-// Settings shows these as swatches: System, the light row, the dark row, then a row of three:
-// the high-contrast pair and Zenburn.
-// The rows line up by hue: each light theme sits above its dark counterpart; Rose and Slate have none.
+// Settings shows these as swatches. Legacy palettes stay first and in their original
+// order so saved pi-theme preferences keep their meaning; new light palettes follow,
+// then new dark palettes.
 export const THEME_OPTIONS = [
   { id: "auto", label: "settings.themeSystem", scheme: null },
   { id: "light", label: "settings.themeLight", scheme: "light" },
@@ -16,6 +16,24 @@ export const THEME_OPTIONS = [
   { id: "contrast-light", label: "settings.themeContrastLight", scheme: "light" },
   { id: "contrast-dark", label: "settings.themeContrastDark", scheme: "dark" },
   { id: "zenburn", label: "settings.themeZenburn", scheme: "dark" },
+  { id: "paper", label: "settings.themePaper", scheme: "light" },
+  { id: "sky", label: "settings.themeSky", scheme: "light" },
+  { id: "sage", label: "settings.themeSage", scheme: "light" },
+  { id: "clay", label: "settings.themeClay", scheme: "light" },
+  { id: "glacier", label: "settings.themeGlacier", scheme: "light" },
+  { id: "latte", label: "settings.themeLatte", scheme: "light" },
+  { id: "solarized-light", label: "settings.themeSolarizedLight", scheme: "light" },
+  { id: "gruvbox-light", label: "settings.themeGruvboxLight", scheme: "light" },
+  { id: "rose-pine-dawn", label: "settings.themeRosePineDawn", scheme: "light" },
+  { id: "midnight", label: "settings.themeMidnight", scheme: "dark" },
+  { id: "ocean", label: "settings.themeOcean", scheme: "dark" },
+  { id: "graphite", label: "settings.themeGraphite", scheme: "dark" },
+  { id: "plum", label: "settings.themePlum", scheme: "dark" },
+  { id: "forest", label: "settings.themeForest", scheme: "dark" },
+  { id: "nord", label: "settings.themeNord", scheme: "dark" },
+  { id: "tokyo-night", label: "settings.themeTokyoNight", scheme: "dark" },
+  { id: "dracula", label: "settings.themeDracula", scheme: "dark" },
+  { id: "solarized-dark", label: "settings.themeSolarizedDark", scheme: "dark" },
 ] as const;
 
 export type ThemePreference = (typeof THEME_OPTIONS)[number]["id"];

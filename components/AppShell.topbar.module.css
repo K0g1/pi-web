@@ -1,0 +1,100 @@
+.minimalControlsHost {
+  display: flex;
+  align-items: stretch;
+  align-self: stretch;
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: flex-end;
+  height: 100%;
+  margin-left: auto;
+}
+
+.minimalControlsToggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--top-bar-height);
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.minimalControlsToggle:hover,
+.minimalControlsToggle[aria-expanded="true"] {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.minimalControlsToggle[aria-expanded="true"] {
+  background: var(--bg-selected);
+  color: var(--accent);
+}
+
+.minimalControlsToggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+}
+
+.minimalControlsDock {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 450;
+  display: flex;
+  align-items: stretch;
+  width: auto;
+  height: var(--top-bar-height);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  border: 1px solid var(--border);
+  border-top: 0;
+  border-radius: 0 0 10px 10px;
+  background: color-mix(in srgb, var(--bg-panel) 96%, var(--bg));
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.16);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-5px);
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease,
+    visibility 0s linear 160ms;
+}
+
+.minimalControlsDock::-webkit-scrollbar {
+  display: none;
+}
+
+.minimalControlsDock:focus-within,
+.minimalControlsHost[data-open="true"] .minimalControlsDock,
+.minimalControlsHost[data-panel-open="true"] .minimalControlsDock {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
+  transition-delay: 0s;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .minimalControlsHost:hover .minimalControlsDock {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateY(0);
+    transition-delay: 0s;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .minimalControlsToggle,
+  .minimalControlsDock {
+    transition: none;
+  }
+}

@@ -304,6 +304,40 @@ test("opens markdown images in the shared image preview", () => {
   assert.match(remoteHtml, /<img[^>]+src="https:\/\/example\.com\/logo\.png"/);
 });
 
+test("authorizes local markdown media reads with the chat session", () => {
+  const sessionId = "session/with space";
+  const encodedSession = "session%2Fwith%20space";
+  const relative = renderMarkdown("![chart](docs/tmp/chart.png)", { sessionId });
+  const absolute = renderMarkdown("![inline](/tmp/pi_inline_test.png)", { cwd: "/private/tmp", sessionId });
+  const fileUrl = renderMarkdown("![inline](file:///tmp/pi_inline_test.png)", { cwd: "/private/tmp", sessionId });
+  const audio = renderMarkdown("![take](out/take.wav)", { sessionId });
+  const video = renderMarkdown("![clip](out/clip.mp4)", { sessionId });
+
+  assert.match(relative, new RegExp(`<img[^>]+src="/api/files/home/me/project/docs/tmp/chart\\.png\\?type=read&amp;sessionId=${encodedSession}"`));
+  assert.match(absolute, new RegExp(`<img[^>]+src="/api/files/tmp/pi_inline_test\\.png\\?type=read&amp;sessionId=${encodedSession}"`));
+  assert.match(absolute, /<button[^>]+aria-label="Preview image: inline"/);
+  assert.equal(fileUrl, absolute, "a file URL uses the same authorized file API read as its POSIX path");
+  assert.doesNotMatch(fileUrl, /file:/);
+  assert.match(audio, new RegExp(`<audio[^>]+src="/api/files/home/me/project/out/take\\.wav\\?type=read&amp;sessionId=${encodedSession}"`));
+  assert.match(video, new RegExp(`<video[^>]+src="/api/files/home/me/project/out/clip\\.mp4\\?type=read&amp;sessionId=${encodedSession}"`));
+
+  const remote = renderMarkdown("![logo](https://example.com/logo.png)", { sessionId });
+  assert.match(remote, /<img[^>]+src="https:\/\/example\.com\/logo\.png"/);
+  assert.doesNotMatch(remote, /sessionId/);
+});
+
+test("keeps file image markup inert outside the chat file reader", () => {
+  const fileMarkdown = renderMarkdown("![inline](file:///tmp/pi_inline_test.png)", { sessionId: "session-1", onOpenFile: undefined });
+  const rawHtml = renderMarkdown('<img src="file:///tmp/pi_inline_test.png" alt="raw">', { sessionId: "session-1" });
+  const unsafeScheme = renderMarkdown("![unsafe](javascript:alert(1))", { sessionId: "session-1" });
+
+  for (const html of [fileMarkdown, rawHtml, unsafeScheme]) {
+    assert.doesNotMatch(html, /file:|javascript:|\/api\/files|sessionId/);
+  }
+  assert.match(fileMarkdown, /<img alt="inline" loading="lazy"\/>/);
+  assert.match(rawHtml, /<img alt="raw" loading="lazy"\/>/);
+});
+
 test("keeps linked markdown images as links instead of nested preview buttons", () => {
   const html = renderMarkdown("[![diagram](docs/tmp/diagram.png)](https://example.com/docs)");
 

@@ -1,0 +1,109 @@
+.activity {
+  margin-bottom: 10px;
+  min-width: 0;
+}
+
+.line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 2px 6px 2px 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text-muted);
+  background: transparent;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: start;
+}
+
+button.line {
+  cursor: pointer;
+}
+
+button.line:hover,
+button.line:focus-visible {
+  color: var(--text);
+}
+
+.line:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.label,
+.preview,
+.summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.label:not(:last-child) {
+  flex: 0 1 auto;
+  max-width: 66%;
+}
+
+.preview,
+.summary {
+  color: var(--text-dim);
+}
+
+.preview {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.preview > bdi {
+  flex: 0 0 auto;
+}
+
+.summary {
+  opacity: 0;
+}
+
+.line:hover .summary,
+.line:focus-visible .summary,
+.line[aria-expanded="true"] .summary {
+  opacity: 1;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: breathe 1.6s ease-in-out infinite;
+}
+
+.chevron {
+  flex: 0 0 auto;
+}
+
+.line[aria-expanded="true"] .chevron {
+  transform: rotate(90deg);
+}
+
+.details {
+  margin: 4px 0 0;
+  padding: 2px 0 0 10px;
+  border-inline-start: 1px solid var(--border);
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: .42; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot { animation: none; }
+}
+
+@media (hover: none) {
+  .summary { opacity: 1; }
+}
