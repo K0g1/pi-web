@@ -1,6 +1,6 @@
 {
   "name": "@agegr/pi-web",
-  "version": "0.15.0-minimal.3",
+  "version": "0.15.0-minimal.4",
   "private": true,
   "description": "Web UI for the Pi coding agent with Minimal mode and optional interactive replies",
   "homepage": "https://github.com/K0g1/pi-web#readme",
