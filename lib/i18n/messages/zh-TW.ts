@@ -1,5 +1,6 @@
 import type { LocalePlugin } from "../types";
 import { appearanceStudioZhTw } from "../appearance-studio-messages.ts";
+import { interactiveUiZhTw } from "../interactive-ui-messages.ts";
 
 /** Pi Web 內建繁體中文語系。 */
 export const zhTWLocale: LocalePlugin = {
@@ -7,6 +8,7 @@ export const zhTWLocale: LocalePlugin = {
   label: "繁體中文",
   messages: {
     ...appearanceStudioZhTw,
+    ...interactiveUiZhTw,
     "common.ok": "確定",
     "common.language": "語言",
     "common.models": "模型",

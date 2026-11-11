@@ -18,6 +18,7 @@ import { normalizeToolCalls } from "@/lib/normalize";
 import { AgentCommandError, agentStatusUrl, EXTENSION_REPORTED_CODE, isPromptRejectedError, sendAgentCommand } from "@/lib/agent-client";
 import { createSideChat, SIDE_REFUSAL_MESSAGES } from "@/lib/side-chat-client";
 import { missingCwdFromBody } from "@/lib/missing-cwd";
+import { getInteractiveUiMode, interactiveUiPromptPreference, resolveInteractiveUiCommand, setInteractiveUiMode } from "@/lib/interactive-ui";
 import {
   deleteSessionViewSnapshot,
   getSessionViewSnapshot,
@@ -2062,6 +2063,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
+    const visualPreference = interactiveUiPromptPreference();
     const trimmedMessage = message.trim();
     if (!trimmedMessage && !images?.length) return;
     if (agentRunningRef.current || bashRunningRef.current) {
@@ -2161,6 +2163,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         const queuedAck = await sendAgentCommand<{ queued?: boolean }>(sid, {
           type: "prompt",
           message,
+          ...visualPreference,
           ...(piImages?.length ? { images: piImages } : {}),
         });
         if (queuedAck?.queued) dropOptimisticUserMessage();
@@ -2172,6 +2175,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         const queuedAck = await sendAgentCommand<{ queued?: boolean }>(session.id, {
           type: "prompt",
           message,
+          ...visualPreference,
           ...(piImages?.length ? { images: piImages } : {}),
         });
         if (queuedAck?.queued) dropOptimisticUserMessage();
@@ -2629,6 +2633,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
     const [, commandName, rawArgs = ""] = match;
     const args = rawArgs.trim();
+    const visualMode = resolveInteractiveUiCommand(commandName, args, getInteractiveUiMode());
+    if (visualMode !== undefined) {
+      if (visualMode === null) {
+        const error = translate("interactiveUi.commandUsage");
+        addNotice({ type: "error", message: error });
+        return { handled: true, error };
+      }
+      setInteractiveUiMode(visualMode);
+      const message = translate("interactiveUi.changed", { mode: translate(`interactiveUi.mode.${visualMode}`) });
+      addNotice({ type: "success", message });
+      return { handled: true, message };
+    }
     const sid = sessionIdRef.current ?? await ensureNewSession();
     const complete = (result: BuiltinSlashCommandResult): BuiltinSlashCommandResult => {
       if (!result.handled) return result;
@@ -2762,7 +2778,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch (e) {
       return complete({ handled: true, error: e instanceof Error ? e.message : String(e) });
     }
-  }, [activeLeafId, addNotice, ensureNewSession, handleCompact, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onOpenSettings, onSessionForked, onSessionStatsPanelOpen, opts.chatInputRef, sessionStats, slashCommandsForMcp, startSideChat]);
+  }, [activeLeafId, addNotice, ensureNewSession, handleCompact, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onOpenSettings, onSessionForked, onSessionStatsPanelOpen, opts.chatInputRef, sessionStats, slashCommandsForMcp, startSideChat, translate]);
 
   // Let AgentSession.prompt decide atomically whether to queue against the
   // current run or start a new turn if it settled while the request was in
@@ -2789,6 +2805,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       await sendAgentCommand(sid, {
         type: "prompt",
         message,
+        ...interactiveUiPromptPreference(),
         streamingBehavior: behavior,
         ...(piImages?.length ? { images: piImages } : {}),
       });

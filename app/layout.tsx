@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Noto_Sans_Mono } from "next/font/google";
 import { PwaRegistration } from "@/components/PwaRegistration";
 import { APPEARANCE_INIT_SCRIPT } from "@/lib/appearance-preferences";
+import { INTERACTIVE_UI_INIT_SCRIPT } from "@/lib/interactive-ui";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import "katex/dist/katex.min.css";
 import "./globals.css";
@@ -9,6 +10,7 @@ import "./settings.css";
 import "./sidebar.css";
 import "./sidebar-menu.css";
 import "./appearance.css";
+import "./interactive-ui.css";
 
 const notoSansMono = Noto_Sans_Mono({
   subsets: ["latin", "cyrillic"],
@@ -74,7 +76,7 @@ export default function RootLayout({
         />
         <script
           dangerouslySetInnerHTML={{
-            __html: APPEARANCE_INIT_SCRIPT,
+            __html: APPEARANCE_INIT_SCRIPT + "\n" + INTERACTIVE_UI_INIT_SCRIPT,
           }}
         />
       </head>

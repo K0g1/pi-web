@@ -1,5 +1,6 @@
 import type { LocalePlugin } from "../types";
 import { appearanceStudioEn } from "../appearance-studio-messages.ts";
+import { interactiveUiEn } from "../interactive-ui-messages.ts";
 
 /** Pi Web 内置英语语言包。 */
 export const enLocale: LocalePlugin = {
@@ -7,6 +8,7 @@ export const enLocale: LocalePlugin = {
   label: "English",
   messages: {
     ...appearanceStudioEn,
+    ...interactiveUiEn,
     "common.ok": "OK",
     "common.language": "Language",
     "common.models": "Models",

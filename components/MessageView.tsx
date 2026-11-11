@@ -1028,7 +1028,7 @@ function TextBlock({ block, isStreaming, cwd, sessionId, onOpenFile }: { block: 
   // A live local image may be authorized only after the assistant entry is
   // saved. Remount once at settlement so the completed reply retries its URL;
   // saved history keeps this key and its parse.
-  return <SafeMarkdownBody key={isStreaming ? "streaming" : "settled"} isStreaming={isStreaming} cwd={cwd} sessionId={sessionId} onOpenFile={onOpenFile}>{block.text}</SafeMarkdownBody>;
+  return <SafeMarkdownBody key={isStreaming ? "streaming" : "settled"} assistantVisuals isStreaming={isStreaming} cwd={cwd} sessionId={sessionId} onOpenFile={onOpenFile}>{block.text}</SafeMarkdownBody>;
 }
 
 // A model looping in its thinking can write megabytes. As one text node, every

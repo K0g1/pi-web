@@ -4,15 +4,19 @@ import { createContext, memo, useContext, useMemo, useState, type ComponentProps
 import ReactMarkdown, { type Components, type ExtraProps, type Options as ReactMarkdownOptions } from "react-markdown";
 import type { Content, Root } from "mdast";
 import { useI18n } from "@/hooks/useI18n";
+import { useInteractiveUiMode } from "@/hooks/useInteractiveUi";
 import { copyText } from "@/lib/clipboard";
 import { parsePdfPageFragment, resolveLocalFileHref, shouldOpenLocalFileInApp } from "@/lib/file-links";
 import { encodeFilePathForApi } from "@/lib/file-paths";
 import { isAudioPath, isVideoPath } from "@/lib/file-types";
-import { isExternalMarkdownHref, jumpToMarkdownFragment, markdownAppUrlTransform, markdownDocumentRehypePlugins, markdownRehypePlugins, markdownRemarkPlugins, markdownTextLayoutRemarkPlugins, markdownUrlTransform, markdownUserRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
+import { isExternalMarkdownHref, jumpToMarkdownFragment, markdownAppUrlTransform, markdownAssistantRehypePlugins, markdownDocumentRehypePlugins, markdownRehypePlugins, markdownRemarkPlugins, markdownTextLayoutRemarkPlugins, markdownUrlTransform, markdownUserRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
 import { splitMarkdownBlocks } from "@/lib/markdown-blocks";
+import { INTERACTIVE_UI_FENCE } from "@/lib/interactive-ui";
+import { resolveVisualImage, visualImageCaption } from "@/lib/visual-image";
 import { ImagePreview } from "./ImagePreview";
 import { MermaidBlock, CodeBlock } from "./MermaidBlock";
 import { SvgBlock } from "./SvgBlock";
+import { VisualWidgetBlock } from "./VisualWidgetBlock";
 
 const MarkdownLinkContext = createContext(false);
 
@@ -20,6 +24,8 @@ interface MarkdownBodyProps {
   children: string;
   className?: string;
   isStreaming?: boolean;
+  /** Only assistant replies can carry the optional visual rendering protocol. */
+  assistantVisuals?: boolean;
   cwd?: string;
   /** The session a chat's local file reads may be authorized against. */
   sessionId?: string;
@@ -55,13 +61,15 @@ function remarkLocalFileImages(options: { cwd?: string; sessionId?: string }) {
   };
 }
 
+type MarkdownImageProps = ComponentProps<"img"> & ExtraProps & { cwd?: string; sessionId?: string };
+
 function MarkdownImage({
   src,
   alt,
   cwd,
   sessionId,
   ...props
-}: ComponentProps<"img"> & ExtraProps & { cwd?: string; sessionId?: string }) {
+}: MarkdownImageProps) {
   const insideLink = useContext(MarkdownLinkContext);
   delete props.node;
   const href = typeof src === "string" ? src : undefined;
@@ -87,6 +95,23 @@ function MarkdownImage({
     <ImagePreview src={mediaSrc} alt={alt ?? ""} className="markdown-image">
       {image}
     </ImagePreview>
+  );
+}
+
+/** A useful image need not be wrapped in a whole interactive widget. Keep the
+ * normal image renderer (including its zoom), and add the credit beneath it. */
+function SourcedMarkdownImage({ source, page, ...props }: MarkdownImageProps & { source: string; page: string }) {
+  const mode = useInteractiveUiMode();
+  const { t } = useI18n();
+  const image = mode === "interactive" && typeof props.src === "string" ? resolveVisualImage({
+    src: props.src, alt: props.alt ?? "", source, page, crop: "",
+  }, props.cwd, props.sessionId, typeof location === "undefined" ? undefined : location.hostname) : null;
+  if (!image) return <MarkdownImage {...props} />;
+  return (
+    <span className="pi-credited-image" role="figure">
+      <MarkdownImage {...props} referrerPolicy="no-referrer" />
+      <small>{visualImageCaption(image, t)}</small>
+    </span>
   );
 }
 
@@ -136,14 +161,14 @@ const MarkdownBlock = memo(function MarkdownBlock({ markdown, remarkPlugins, url
   );
 });
 
-export const MarkdownBody = memo(function MarkdownBody({ children, className, isStreaming, cwd, sessionId, onOpenFile, onNavigateLink, keepLineBreaks, keepTextLayout }: MarkdownBodyProps) {
+export const MarkdownBody = memo(function MarkdownBody({ children, className, isStreaming, assistantVisuals, cwd, sessionId, onOpenFile, onNavigateLink, keepLineBreaks, keepTextLayout }: MarkdownBodyProps) {
   const normalizedMarkdown = useMemo(() => normalizeDisplayMath(children), [children]);
   // A streaming reply grows by a few characters per chunk; parsing all of it
   // each time made a long reply quadratic. Its finished blocks keep their
   // parse and only the last is parsed again. A finished message is one block.
   const blocks = useMemo(
-    () => (isStreaming ? splitMarkdownBlocks(normalizedMarkdown) : [normalizedMarkdown]),
-    [isStreaming, normalizedMarkdown],
+    () => (isStreaming ? splitMarkdownBlocks(normalizedMarkdown, assistantVisuals) : [normalizedMarkdown]),
+    [assistantVisuals, isStreaming, normalizedMarkdown],
   );
   const remarkPlugins = useMemo<NonNullable<ReactMarkdownOptions["remarkPlugins"]>>(() => {
     const base = (keepTextLayout
@@ -160,6 +185,9 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
       const raw = String(children);
       const isBlock = className?.includes("language-") || raw.includes("\n");
       if (isBlock) {
+        if (assistantVisuals && lang === INTERACTIVE_UI_FENCE) {
+          return <VisualWidgetBlock code={raw.replace(/\n$/, "")} isStreaming={isStreaming} cwd={cwd} sessionId={sessionId} />;
+        }
         if (lang === "mermaid") {
           return (
             <MermaidBlock
@@ -239,6 +267,13 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
       );
     },
     img(props) {
+      const source = props.node?.properties.dataPiSource;
+      const page = props.node?.properties.dataPiPage;
+      if (assistantVisuals && (typeof source === "string" || typeof page === "string")) {
+        return <SourcedMarkdownImage {...props} cwd={cwd} sessionId={sessionId}
+          source={typeof source === "string" ? source.slice(0, 180) : ""}
+          page={typeof page === "string" ? page.slice(0, 12) : ""} />;
+      }
       return <MarkdownImage cwd={cwd} sessionId={sessionId} {...props} />;
     },
     ol({ node, start, style, ...props }) {
@@ -264,17 +299,17 @@ export const MarkdownBody = memo(function MarkdownBody({ children, className, is
         </div>
       );
     },
-  }), [cwd, isStreaming, onOpenFile, onNavigateLink, sessionId]);
+  }), [assistantVisuals, cwd, isStreaming, onOpenFile, onNavigateLink, sessionId]);
 
   return (
-    <div className={["markdown-body", className].filter(Boolean).join(" ")}>
+    <div className={["markdown-body", assistantVisuals ? "pi-assistant-visuals" : "", className].filter(Boolean).join(" ")}>
       {blocks.map((block, index) => (
         <MarkdownBlock
           key={index}
           markdown={block}
           remarkPlugins={remarkPlugins}
           urlTransform={onOpenFile ? markdownUrlTransform : markdownAppUrlTransform}
-          rehypePlugins={onNavigateLink ? markdownDocumentRehypePlugins : markdownRehypePlugins}
+          rehypePlugins={onNavigateLink ? markdownDocumentRehypePlugins : assistantVisuals ? markdownAssistantRehypePlugins : markdownRehypePlugins}
           components={components}
         />
       ))}

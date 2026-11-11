@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import ts from "typescript";
+import { getInteractiveUiMode, resolveInteractiveUiCommand } from "../lib/interactive-ui.ts";
 
 // `/compact` must not hold the composer hostage. runBuiltinCommand keeps the
 // composer's <fieldset> disabled until the builtin command resolves, and a
@@ -59,6 +60,8 @@ function hook() {
   const scope = {
     sessionIdRef: { current: "session-1" },
     ensureNewSession: async () => "session-1",
+    getInteractiveUiMode,
+    resolveInteractiveUiCommand,
     addNotice: (notice) => calls.notices.push(notice),
     isCompacting: false,
     setIsCompacting: (value) => calls.compacting.push(value),

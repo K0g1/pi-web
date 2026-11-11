@@ -28,9 +28,9 @@ export function registerAbortHandler(handler: (() => void) | null): void {
 export function handleGlobalEscape(event: KeyboardEvent): boolean {
   if (event.key !== "Escape" || event.defaultPrevented || !globalAbortHandler) return false;
 
-  const tag = (event.target as HTMLElement | null)?.tagName;
-  // Let textarea/input handle Esc internally (ChatInput menus / stop).
-  if (tag === "TEXTAREA" || tag === "INPUT") return false;
+  // Controls inside a visual's shadow tree are retargeted to the preview host.
+  const tag = ((event.composedPath?.()[0] ?? event.target) as HTMLElement | null)?.tagName;
+  if (tag === "TEXTAREA" || tag === "INPUT" || tag === "SELECT") return false;
 
   event.preventDefault();
   globalAbortHandler();

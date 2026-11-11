@@ -27,6 +27,29 @@ function renderMarkdown(markdown, props = {}) {
   );
 }
 
+test("only assistant replies preserve the scoped visual accent classes and recognize a pi-html fence", () => {
+  const markdown = 'A <mark class="pi-water arbitrary" style="color:red" onclick="example()">highlight</mark>.\n\n<div class="pi-callout pi-warning other">Caution</div>\n\n```pi-html\n<p>Sample</p>\n```';
+  const assistant = renderMarkdown(markdown, { assistantVisuals: true });
+  assert.match(assistant, /<mark class="pi-water">highlight<\/mark>/);
+  assert.match(assistant, /<div class="pi-callout pi-warning">Caution<\/div>/);
+  assert.match(assistant, /Interactive visual · preview off/);
+  assert.doesNotMatch(assistant, /onclick|color:red|arbitrary|<p>Sample<\/p>/);
+  const other = renderMarkdown(markdown);
+  assert.doesNotMatch(other, /class="pi-water|pi-callout|preview off/);
+  assert.match(other, /&lt;p&gt;Sample/);
+  const sourceCode = renderMarkdown('```html\n<div>Example</div>\n```', { assistantVisuals: true });
+  assert.doesNotMatch(sourceCode, /preview off|<div>Example<\/div>/);
+});
+
+test("credited images can stand beside a widget and keep the normal local image route", () => {
+  const markdown = '<img src="./mirror.png" alt="A mirror" data-pi-source="Optics.pdf" data-pi-page="2">';
+  const assistant = renderMarkdown(markdown, { assistantVisuals: true, sessionId: "fixture" });
+  assert.match(assistant, /data-pi-source="Optics\.pdf"/);
+  assert.match(assistant, /data-pi-page="2"/);
+  assert.match(assistant, /mirror\.png\?type=read&amp;sessionId=fixture/);
+  assert.doesNotMatch(renderMarkdown(markdown), /data-pi-source|data-pi-page/);
+});
+
 test("a document reader keeps local links in the page without an href", () => {
   const local = renderMarkdown("[relative](references/setup.md#config) [anchor](#config) [outside](../outside.md) [absolute](/etc/test.md) [attachment](image.png)", { onOpenFile: undefined, onNavigateLink() {} });
   assert.equal((local.match(/<a role="link" tabindex="0">/g) ?? []).length, 5);

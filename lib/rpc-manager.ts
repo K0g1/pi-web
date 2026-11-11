@@ -61,6 +61,8 @@ import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { resolveShellTools } from "./powershell-settings";
 import { CHAT_ONLY_RESOURCE_LOADER_OPTIONS, contextFilesSystemPrompt } from "./chat-only";
 import { createExactSystemPromptExtension } from "./exact-system-prompt";
+import { parseInteractiveUiMode, type InteractiveUiMode } from "./interactive-ui";
+import { createInteractiveUiPromptContext } from "./interactive-ui-prompt";
 import { createPiWebBuiltinExtensions, createSubagentCodemodeExtension, createSubagentMcpExtensions } from "./builtin-extensions";
 import type { McpHost } from "./mcp-host";
 import type { DebugMcpHost, DebugSessionLifecycle, DebugWrapperSnapshot } from "./debug-types";
@@ -97,6 +99,7 @@ type EventListener = (event: AgentEvent) => void;
 type ParkedPrompt = {
   message: string;
   images?: Array<{ type: "image"; data: string; mimeType: string }>;
+  interactiveUiMode: InteractiveUiMode;
   /** The composer's steer / followUp; undefined: sent as a fresh prompt, parked as steer (the TUI's Enter). */
   streamingBehavior?: "steer" | "followUp";
   /** Settles the admission's `pendingPromptCount` (idempotent): on delivery, recall, Stop or a failed send. */
@@ -169,6 +172,7 @@ type WrapperMcpHost = Pick<McpHost, "prepareForPrompt" | "dispose"> & Partial<Pi
 
 type AgentSessionWrapperOptions = {
   exactSystemPrompt?: () => string;
+  interactiveUiPrompt?: ReturnType<typeof createInteractiveUiPromptContext>;
   chatOnly?: boolean;
   onAgentRunComplete?: AgentRunCompleteListener;
   suppressCompletionNotifications?: boolean;
@@ -365,6 +369,7 @@ export class AgentSessionWrapper {
   private extensionBindingPromise: Promise<void> | null = null;
   private extensionBindingError: unknown = null;
   private readonly exactSystemPrompt?: () => string;
+  private readonly interactiveUiPrompt?: ReturnType<typeof createInteractiveUiPromptContext>;
   private readonly chatOnly: boolean;
   private readonly onAgentRunComplete?: AgentRunCompleteListener;
   private readonly onDirectTurnSettled?: (aborted: boolean) => void;
@@ -412,6 +417,7 @@ export class AgentSessionWrapper {
     options: AgentSessionWrapperOptions = {},
   ) {
     this.exactSystemPrompt = options.exactSystemPrompt;
+    this.interactiveUiPrompt = options.interactiveUiPrompt;
     this.chatOnly = options.chatOnly ?? false;
     this.onAgentRunComplete = options.onAgentRunComplete;
     this.onDirectTurnSettled = options.onDirectTurnSettled;
@@ -748,6 +754,11 @@ export class AgentSessionWrapper {
     }
   }
 
+  private submitPrompt(mode: InteractiveUiMode, ...args: Parameters<AgentSessionLike["prompt"]>) {
+    const submit = () => this.inner.prompt(...args);
+    return this.interactiveUiPrompt ? this.interactiveUiPrompt.run(mode, submit) : submit();
+  }
+
   private async deliverParkedPrompt(entry: ParkedPrompt): Promise<void> {
     const releaseAdmission = await this.acquirePromptAdmission();
     entry.delivering = false;
@@ -768,7 +779,7 @@ export class AgentSessionWrapper {
     let disposition: "handled" | "queued" | "started" | undefined;
     let failure: unknown;
     try {
-      await this.inner.prompt(entry.message, {
+      await this.submitPrompt(entry.interactiveUiMode, entry.message, {
         ...(entry.images?.length ? { images: entry.images } : {}),
         source: "rpc",
         streamingBehavior: entry.streamingBehavior ?? "steer",
@@ -1191,6 +1202,7 @@ export class AgentSessionWrapper {
           }
           const promptImages = command.images as Array<{ type: "image"; data: string; mimeType: string }> | undefined;
           const streamingBehavior = command.streamingBehavior as "steer" | "followUp" | undefined;
+          const interactiveUiMode = parseInteractiveUiMode(command.interactiveUiMode);
           let preflightAccepted = false;
           let preflightSettled = false;
           let promptSettled = false;
@@ -1259,7 +1271,7 @@ export class AgentSessionWrapper {
           if (!streamingBehavior) this.lastRunAborted = false;
           let prompt: Promise<void>;
           try {
-            prompt = this.inner.prompt(command.message as string, {
+            prompt = this.submitPrompt(interactiveUiMode, command.message as string, {
               ...(promptImages?.length ? { images: promptImages } : {}),
               ...(streamingBehavior ? { streamingBehavior } : {}),
               source: "rpc",
@@ -1292,6 +1304,7 @@ export class AgentSessionWrapper {
                 message: command.message as string,
                 images: promptImages,
                 streamingBehavior,
+                interactiveUiMode,
                 settle: finishPrompt,
               });
               parked = true;
@@ -3237,6 +3250,7 @@ export async function startRpcSession(
     // after the session is created, so the getter is filled in below.
     const exactSystemPromptRef: { current?: () => string } = {};
     const exactSystemPromptExtension = createExactSystemPromptExtension(() => exactSystemPromptRef.current?.());
+    const interactiveUiPrompt = subagentResources ? undefined : createInteractiveUiPromptContext();
     // codemode, tool-search, and mcp, as the pi CLI loads them, and the host that decides
     // which MCP servers the session connects (ADR 0006).
     const builtins = subagentResources || chatOnly || sideChatTools
@@ -3291,7 +3305,7 @@ export async function startRpcSession(
             appendSystemPrompt: subagentResources.appendSystemPrompt,
           }
         : chatOnly
-          ? { ...CHAT_ONLY_RESOURCE_LOADER_OPTIONS, extensionFactories: [exactSystemPromptExtension] }
+          ? { ...CHAT_ONLY_RESOURCE_LOADER_OPTIONS, extensionFactories: [exactSystemPromptExtension, interactiveUiPrompt!.extension] }
         : {
             extensionFactories: [
               ...(builtins?.extensions ?? []),
@@ -3305,6 +3319,7 @@ export async function startRpcSession(
                 () => listSubagentProfiles(sessionCwd),
                 isBuiltInSubagentsEnabled,
               ),
+              interactiveUiPrompt!.extension,
             ],
             extensionsOverride: (base) => preferUserBashExtension(preferPiWebSubagentExtension(base)),
           },
@@ -3440,6 +3455,7 @@ export async function startRpcSession(
     let restoredDeferredModel = false;
     const wrapper = new AgentSessionWrapper(inner, {
       exactSystemPrompt,
+      interactiveUiPrompt,
       chatOnly,
       onAgentRunComplete: (completedSessionId, sessionName) => {
         void notifySessionComplete(completedSessionId, sessionName).catch((error) => {

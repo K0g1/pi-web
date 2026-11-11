@@ -10,6 +10,8 @@ import {
   type KeyboardEvent,
 } from "react";
 import { useI18n } from "@/hooks/useI18n";
+import { useInteractiveUiMode } from "@/hooks/useInteractiveUi";
+import { INTERACTIVE_UI_MODES, parseInteractiveUiMode, setInteractiveUiMode } from "@/lib/interactive-ui";
 import {
   useAppearanceChoice,
   useAppearancePreferences,
@@ -668,6 +670,23 @@ function AppearancePreview({
   );
 }
 
+function InteractiveUiChoice() {
+  const { t } = useI18n();
+  const id = useId();
+  const mode = useInteractiveUiMode();
+  return (
+    <div className={styles.choiceList}>
+      <div className={styles.choiceRow}>
+        <label className={styles.choiceLabel} htmlFor={id}>{t("interactiveUi.label")}</label>
+        <select id={id} aria-describedby={`${id}-description`} className={styles.select} value={mode} onChange={(event) => setInteractiveUiMode(parseInteractiveUiMode(event.target.value))}>
+          {INTERACTIVE_UI_MODES.map((value) => <option key={value} value={value}>{t(`interactiveUi.mode.${value}`)}</option>)}
+        </select>
+      </div>
+      <p id={`${id}-description`} className={styles.paneDescription}>{t("interactiveUi.description")}</p>
+    </div>
+  );
+}
+
 export function AppearanceStudio() {
   const { t } = useI18n();
   const { preference, theme, setThemePreference } = useTheme();
@@ -1040,6 +1059,7 @@ export function AppearanceStudio() {
                 t={t}
               />
             ))}
+            <InteractiveUiChoice />
           </div>
         </section>
 

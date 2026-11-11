@@ -1,5 +1,6 @@
 import type { LocalePlugin } from "../types";
 import { appearanceStudioZhCn } from "../appearance-studio-messages.ts";
+import { interactiveUiZhCn } from "../interactive-ui-messages.ts";
 
 /** Pi Web 内置简体中文语言包。 */
 export const zhCNLocale: LocalePlugin = {
@@ -7,6 +8,7 @@ export const zhCNLocale: LocalePlugin = {
   label: "简体中文",
   messages: {
     ...appearanceStudioZhCn,
+    ...interactiveUiZhCn,
     "common.ok": "确定",
     "common.language": "语言",
     "common.models": "模型",

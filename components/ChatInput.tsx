@@ -31,6 +31,7 @@ import { DismissButton } from "./DismissButton";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useEnterSendMode } from "@/hooks/useEnterSendMode";
 import { useI18n } from "@/hooks/useI18n";
+import { INTERACTIVE_UI_COMMANDS } from "@/lib/interactive-ui";
 import { useChatAppearance } from "@/hooks/useChatAppearance";
 import { useFontPreferences } from "@/hooks/useFontPreferences";
 import type { ToolPreset } from "@/lib/tool-presets";
@@ -312,6 +313,7 @@ type SlashCommandPaletteItem = SlashCommandInfo | BuiltinSlashCommand;
 type SlashCommandSource = SlashCommandPaletteItem["source"];
 
 const BUILTIN_SLASH_COMMANDS: BuiltinSlashCommand[] = [
+  ...INTERACTIVE_UI_COMMANDS.map(({ name, description }): BuiltinSlashCommand => ({ name, description, source: "builtin", availableWhileStreaming: true })),
   { name: "compact", description: "chat.commandCompact", source: "builtin" },
   { name: "auto-compact", description: "chat.commandAutoCompact", source: "builtin" },
   { name: "reload", description: "chat.commandReload", source: "builtin" },

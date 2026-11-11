@@ -42,6 +42,23 @@ const markdownSanitizeSchema = {
   strip: [...(defaultSchema.strip || []), "iframe", "object", "style", "form"],
 };
 
+const assistantVisualClasses: [string, ...string[]] = ["className",
+  "pi-positive", "pi-negative", "pi-water", "pi-warning", "pi-note", "pi-neutral",
+  "pi-sm", "pi-lg", "pi-xl", "pi-callout",
+];
+const assistantVisualSanitizeSchema = {
+  ...markdownSanitizeSchema,
+  tagNames: [...(markdownSanitizeSchema.tagNames ?? []), "mark", "aside"],
+  attributes: {
+    ...markdownSanitizeSchema.attributes,
+    span: [assistantVisualClasses],
+    mark: [assistantVisualClasses],
+    div: [...(defaultSchema.attributes?.div ?? []), assistantVisualClasses],
+    aside: [assistantVisualClasses],
+    img: [...(defaultSchema.attributes?.img ?? []), "dataPiSource", "dataPiPage"],
+  },
+};
+
 /** react-markdown's URL filter, plus links to the apps above. */
 export function markdownAppUrlTransform(value: string): string {
   return appLinkPattern.test(value) ? value : defaultUrlTransform(value);
@@ -797,6 +814,14 @@ function rehypeDisplayMathSource() {
 export const markdownRehypePlugins: ReactMarkdownOptions["rehypePlugins"] = [
   rehypeRaw,
   [rehypeSanitize, markdownSanitizeSchema],
+  rehypeMatchClobberedIds,
+  rehypeDisplayMathSource,
+  [rehypeKatex, { throwOnError: false, strict: false }],
+];
+
+export const markdownAssistantRehypePlugins: ReactMarkdownOptions["rehypePlugins"] = [
+  rehypeRaw,
+  [rehypeSanitize, assistantVisualSanitizeSchema],
   rehypeMatchClobberedIds,
   rehypeDisplayMathSource,
   [rehypeKatex, { throwOnError: false, strict: false }],
